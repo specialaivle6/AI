@@ -1,0 +1,30 @@
+solar-panel-ai-service/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                 # FastAPI 앱 진입점
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── model_loader.py     # 모델 로딩 관리
+│   │   └── inference.py        # 추론 로직
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── endpoints.py        # API 엔드포인트
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── config.py          # 설정 관리
+│   │   └── security.py        # 인증/보안
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── image_processor.py  # 이미지 전처리
+│   │   └── result_processor.py # 결과 후처리
+│   └── utils/
+│       ├── __init__.py
+│       └── logger.py          # 로깅
+├── models/                    # 학습된 모델 파일 저장
+│   └── mobilenet_v3_small.pth
+├── tests/                     # 테스트 코드
+├── requirements.txt           # pip 의존성
+├── environment.yml           # conda 의존성
+├── Dockerfile               # Docker 배포용
+├── docker-compose.yml       # 로컬 테스트용
+└── README.md
