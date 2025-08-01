@@ -1,4 +1,4 @@
-# 🚀 태양광 패널 AI 서비스 빠른 시작 가이드
+# 🚀 AI Services - 패널 분석 빠른 시작 가이드
 
 ## 📋 체크리스트 (5분만에 실행)
 
@@ -13,7 +13,7 @@ python --version  # Python 3.11.x 여야 함
 ### ✅ 2단계: 서버 실행
 ```bash
 # 저장소 이동
-cd solar-panel-ai-service
+cd ai-service/panel-analysis
 
 # 환경 활성화
 conda activate solar-panel-ai

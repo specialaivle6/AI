@@ -1,8 +1,8 @@
-# 태양광 패널 AI 분석 서비스 v1.0
+# AI Services v1.0 - 태양광 패널 분석 서비스
 
 ## 📋 개요
 
-태양광 패널 이미지를 업로드하면 AI가 자동으로 상태를 분석하고 조치사항을 제공하는 RESTful API 서비스입니다.
+통합 AI 서비스 저장소의 첫 번째 서비스로, 태양광 패널 이미지를 업로드하면 AI가 자동으로 상태를 분석하고 조치사항을 제공하는 RESTful API 서비스입니다.
 
 ### 핵심 기능
 - **이미지 분석**: MobileNetV3 기반 딥러닝 모델로 패널 상태 6개 클래스 분류
@@ -19,7 +19,9 @@ Frontend (React)
     ↓
 Spring Boot (Java) - 비즈니스 로직, DB 처리
     ↓ HTTP API 호출
-FastAPI (Python) - AI 모델 서빙 [현재 구현완료]
+AI Service (Python) - 통합 AI 서비스
+  └── panel-analysis - 패널 분석 서비스 [현재 구현완료]
+  └── (향후 추가 AI 서비스들)
 ```
 
 ---
@@ -57,19 +59,22 @@ FastAPI (Python) - AI 모델 서빙 [현재 구현완료]
 ```bash
 # 1. 저장소 클론
 git clone [repository-url]
-cd solar-panel-ai-service
+cd ai-service
 
-# 2. Conda 환경 생성
+# 2. 패널 분석 서비스로 이동
+cd panel-analysis
+
+# 3. Conda 환경 생성
 conda create -n solar-panel-ai python=3.11 -y
 conda activate solar-panel-ai
 
-# 3. 의존성 설치
+# 4. 의존성 설치
 pip install -r requirements.txt
 
-# 4. 모델 파일 배치
+# 5. 모델 파일 배치
 # models/mobilenet_v3_small.pth 파일을 배치
 
-# 5. 서버 실행
+# 6. 서버 실행
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -274,21 +279,23 @@ curl -X POST "http://localhost:8000/analyze-panel" \
 ## 📂 프로젝트 구조
 
 ```
-solar-panel-ai-service/
-├── app/
-│   ├── main.py                 # FastAPI 메인 애플리케이션
+ai-service/
+├── README.md                  # 전체 AI 서비스 개요
+├── panel-analysis/            # 태양광 패널 분석 서비스
+│   ├── app/
+│   │   ├── main.py                 # FastAPI 메인 애플리케이션
+│   │   ├── models/
+│   │   │   └── model_loader.py     # AI 모델 로딩 및 추론
+│   │   ├── services/
+│   │   │   ├── image_processor.py  # 이미지 전처리
+│   │   │   └── result_processor.py # 결과 후처리 및 비즈니스 로직
+│   │   └── core/
+│   │       └── config.py          # 설정 관리
 │   ├── models/
-│   │   └── model_loader.py     # AI 모델 로딩 및 추론
-│   ├── services/
-│   │   ├── image_processor.py  # 이미지 전처리
-│   │   └── result_processor.py # 결과 후처리 및 비즈니스 로직
-│   └── core/
-│       └── config.py          # 설정 관리
-├── models/
-│   └── mobilenet_v3_small.pth # 학습된 모델 파일
-├── requirements.txt           # Python 의존성
-├── test_api.py               # 테스트 스크립트
-└── README.md
+│   │   └── mobilenet_v3_small.pth # 학습된 모델 파일
+│   ├── requirements.txt           # Python 의존성
+│   └── test_api.py               # 테스트 스크립트
+└── (향후 추가될 다른 AI 서비스들)
 ```
 
 ---
@@ -300,25 +307,17 @@ solar-panel-ai-service/
 - [ ] 배치 처리 (다중 이미지 동시 분석)
 - [ ] 예측 결과 로깅 및 모니터링
 
-### v1.2 (중기)
-- [ ] Docker 컨테이너화
+### v1.2 (중기)  
+- [ ] Docker 컨테이너화 (개별 서비스별)
 - [ ] AWS 배포 환경 구축
 - [ ] 모델 성능 개선 (더 많은 학습 데이터)
+- [ ] 두 번째 AI 서비스 개발 시작
 
 ### v2.0 (장기)
 - [ ] 실시간 스트리밍 분석
-- [ ] 모델 A/B 테스트 프레임워크
+- [ ] 모델 A/B 테스트 프레임워크  
 - [ ] 자동 재학습 파이프라인
-
----
-
-## 🤝 팀 역할
-
-| 역할 | 담당자 | 책임 범위 |
-|------|---------|-----------|
-| AI 개발 | [본인] | 모델 개발, AI 서버 구축, 성능 최적화 |
-| 백엔드 | Spring Boot 팀 | 비즈니스 로직, DB 연동, API 통합 |
-| 프론트엔드 | React 팀 | UI/UX, 이미지 업로드 기능 |
+- [ ] 다중 AI 서비스 통합 관리 시스템
 
 ---
 
@@ -326,4 +325,7 @@ solar-panel-ai-service/
 
 | 버전 | 날짜 | 변경사항 |
 |------|------|----------|
-| v1.0 | 2024-08-01 | 초기 버전 릴리즈, 핵심 기능 완성 |
+| v1.0 | 2024-08-01 | 초기 버전 릴리즈, 패널 분석 서비스 완성, 통합 AI 서비스 구조 적용 |
+
+---
+
