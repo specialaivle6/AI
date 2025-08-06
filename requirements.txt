@@ -4,8 +4,8 @@ uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 
 # PyTorch (CPU 버전)
-torch==2.1.0+cpu
-torchvision==0.16.0+cpu
+torch==2.1.0
+torchvision==0.16.0
 
 # 이미지 처리
 Pillow==10.1.0
