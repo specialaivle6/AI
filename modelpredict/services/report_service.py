@@ -4,6 +4,7 @@ from model.model_loader import model
 from utils.geo import find_nearest_region
 from utils.report_utils import generate_report, estimate_lifespan
 from model.panel_request import PanelRequest
+from utils.cost_utils import estimate_cost
 
 # 예측 모델의 피처 순서 정의
 model_features = [
@@ -79,12 +80,16 @@ def process_report(data: PanelRequest) -> dict:
     else:
         status = "Degraded (Requires image inspection)"
 
+    # ★ 비용 계산 추가 (상태 문자열은 그대로 사용)
+    cost = estimate_cost(data.model_name, status, lifespan)    
+
     report_path = generate_report(
         predicted=predicted,
         actual=actual,
         status=status,
         user_id=data.user_id,
-        lifespan=lifespan
+        lifespan=lifespan,
+        cost=cost, #추가
     )
 
     return {
