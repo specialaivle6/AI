@@ -7,9 +7,13 @@ python-multipart==0.0.6
 torch==2.1.0
 torchvision==0.16.0
 
+# YOLOv8 및 AI 모델
+ultralytics==8.0.196
+
 # 이미지 처리
 Pillow==10.1.0
 opencv-python==4.8.1.78
+matplotlib==3.7.2
 
 # 유틸리티
 numpy==1.24.3
