@@ -72,7 +72,7 @@ pip install -r requirements.txt
 
 # 4. 모델 파일 배치 (선택사항)
 # models/mobilenet_v3_small.pt 파일을 배치 (없으면 기본 YOLOv8 모델 사용)
-# 모델 다운 링크
+# 모델 다운 링크: https://drive.google.com/file/d/1YgGcg24h3tLu6G_Cv0zJlbTzpO8aPTyn/view?usp=sharing
 
 # 5. 서버 실행
 python -m app.main
