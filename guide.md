@@ -108,6 +108,102 @@ public class PanelController {
 }
 ```
 
+### Spring Boot에서 새로운 DB 연동 API 사용법
+
+```java
+// 의존성 추가 필요: spring-boot-starter-web
+
+@RestController
+public class PanelController {
+    
+    @PostMapping("/panel/analyze-with-db")
+    public ResponseEntity<?> analyzePanelWithDatabase(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("panel_id") Integer panelId,
+            @RequestParam("user_id") String userId) {
+        
+        // 새로운 DB 연동 API 호출
+        RestTemplate restTemplate = new RestTemplate();
+        
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", file.getResource());
+        
+        UriComponentsBuilder builder = UriComponentsBuilder
+                .fromHttpUrl("http://localhost:8000/panels/analyze")
+                .queryParam("panel_id", panelId)
+                .queryParam("user_id", userId);
+        
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        
+        HttpEntity<MultiValueMap<String, Object>> requestEntity = 
+            new HttpEntity<>(body, headers);
+        
+        try {
+            ResponseEntity<Map> response = restTemplate.postForEntity(
+                builder.toUriString(),
+                requestEntity,
+                Map.class
+            );
+            
+            return ResponseEntity.ok(response.getBody());
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500)
+                .body("DB 연동 분석 실패: " + e.getMessage());
+        }
+    }
+    
+    @GetMapping("/panel/{panelId}/history")
+    public ResponseEntity<?> getPanelHistory(@PathVariable Integer panelId) {
+        
+        RestTemplate restTemplate = new RestTemplate();
+        
+        try {
+            ResponseEntity<Map> response = restTemplate.getForEntity(
+                "http://localhost:8000/panels/" + panelId + "/history",
+                Map.class
+            );
+            
+            return ResponseEntity.ok(response.getBody());
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500)
+                .body("패널 이력 조회 실패: " + e.getMessage());
+        }
+    }
+    
+    @PutMapping("/report/{reportId}/status")
+    public ResponseEntity<?> updateReportStatus(
+            @PathVariable Integer reportId,
+            @RequestBody Map<String, String> statusUpdate) {
+        
+        RestTemplate restTemplate = new RestTemplate();
+        
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        
+        HttpEntity<Map<String, String>> requestEntity = 
+            new HttpEntity<>(statusUpdate, headers);
+        
+        try {
+            ResponseEntity<Map> response = restTemplate.exchange(
+                "http://localhost:8000/reports/" + reportId + "/status",
+                HttpMethod.PUT,
+                requestEntity,
+                Map.class
+            );
+            
+            return ResponseEntity.ok(response.getBody());
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500)
+                .body("리포트 상태 업데이트 실패: " + e.getMessage());
+        }
+    }
+}
+```
+
 ---
 
 ## 📊 응답 데이터 해석 (YOLOv8 기반)

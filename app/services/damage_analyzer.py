@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class   DamageAnalyzer:
+class DamageAnalyzer:
     """YOLOv8 기반 태양광 패널 손상 분석기"""
 
     def __init__(self):

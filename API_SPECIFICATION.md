@@ -245,6 +245,177 @@ AI 모델 로딩 상태를 포함한 상세한 서비스 상태를 확인합니�
 
 ---
 
+### 5. DB 연동 패널 분석 (신규)
+**POST** `/panels/analyze`
+
+패널 이미지 분석과 동시에 데이터베이스에 결과를 저장하는 통합 API입니다.
+
+#### Request
+- **Method**: POST
+- **URL**: `/panels/analyze`
+- **Content-Type**: `multipart/form-data`
+
+#### Request Parameters
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `file` | File | Yes | 분석할 태양광 패널 이미지 파일 |
+| `panel_id` | integer | Yes | 패널 고유 ID |
+| `user_id` | string | Yes | 사용자 ID (UUID 형식 또는 일반 문자열) |
+
+#### Response
+```json
+{
+  "image_info": {
+    "filename": "panel_image.jpg",
+    "size": "1920x1080",
+    "processing_time_seconds": 1.28
+  },
+  "damage_analysis": {
+    "overall_damage_percentage": 15.34,
+    "critical_damage_percentage": 2.1,
+    "contamination_percentage": 13.24,
+    "healthy_percentage": 84.66,
+    "avg_confidence": 0.892,
+    "detected_objects": 3,
+    "class_breakdown": {
+      "Dusty": 13.24,
+      "Physical-Damage": 2.1
+    },
+    "status": "analyzed"
+  },
+  "business_assessment": {
+    "priority": "MEDIUM",
+    "risk_level": "LOW",
+    "recommendations": [
+      "패널 청소 필요",
+      "물리적 손상 부위 점검 권장"
+    ],
+    "estimated_repair_cost_krw": 15340,
+    "estimated_performance_loss_percent": 12.3,
+    "maintenance_urgency_days": 30,
+    "business_impact": "경미한 성능 영향 - 계획적 유지보수 권장"
+  },
+  "detection_details": {
+    "total_detections": 3,
+    "detections": [
+      {
+        "class_name": "Dusty",
+        "confidence": 0.876,
+        "bbox": [100, 150, 400, 300],
+        "area_pixels": 45000
+      },
+      {
+        "class_name": "Physical-Damage",
+        "confidence": 0.923,
+        "bbox": [450, 200, 600, 350],
+        "area_pixels": 22500
+      }
+    ]
+  },
+  "confidence_score": 0.892,
+  "timestamp": "2024-08-12 14:30:25",
+  "panel_image_id": 123,
+  "panel_image_report_id": 456,
+  "recommended_status": "손상",
+  "recommended_decision": "수리"
+}
+```
+
+#### Additional Response Fields
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `panel_image_id` | integer | 생성된 PanelImage 레코드 ID |
+| `panel_image_report_id` | integer | 생성된 PanelImageReport 레코드 ID |
+| `recommended_status` | string | 권장 패널 상태 (손상, 오염, 정상) |
+| `recommended_decision` | string | 권장 조치 결정 (단순 오염, 수리, 교체) |
+
+---
+
+### 6. 패널 분석 이력 조회
+**GET** `/panels/{panel_id}/history`
+
+특정 패널의 모든 분석 이력을 조회합니다.
+
+#### Request
+- **Method**: GET
+- **URL**: `/panels/{panel_id}/history`
+- **Parameters**: 없음
+
+#### Path Parameters
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `panel_id` | integer | Yes | 조회할 패널 ID |
+
+#### Response
+```json
+{
+  "panel_id": 1234,
+  "images": [
+    {
+      "id": 1,
+      "panel_id": 1234,
+      "user_id": "123e4567-e89b-12d3-a456-426614174000",
+      "film_date": "2024-08-12",
+      "panel_imageurl": "uploads/panel_image.jpg",
+      "is_analysis": true
+    }
+  ],
+  "reports": [
+    {
+      "id": 1,
+      "panel_id": 1234,
+      "user_id": "123e4567-e89b-12d3-a456-426614174000",
+      "status": "손상",
+      "damage_degree": 7,
+      "decision": "수리",
+      "request_status": "요청 중",
+      "created_at": "2024-08-12"
+    }
+  ],
+  "total_analyses": 1
+}
+```
+
+---
+
+### 7. 리포트 상태 업데이트 (관리자용)
+**PUT** `/reports/{report_id}/status`
+
+패널 이미지 리포트의 처리 상태를 업데이트합니다.
+
+#### Request
+- **Method**: PUT
+- **URL**: `/reports/{report_id}/status`
+- **Content-Type**: `application/json`
+
+#### Path Parameters
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `report_id` | integer | Yes | 업데이트할 리포트 ID |
+
+#### Request Body
+```json
+{
+  "status": "처리중"
+}
+```
+
+#### Request Body Fields
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `status` | string | Yes | 새로운 상태 (요청 중, 요청확인, 처리중, 처리 완료) |
+
+#### Response
+```json
+{
+  "message": "리포트 상태가 업데이트되었습니다.",
+  "report_id": 1,
+  "new_status": "처리중"
+}
+```
+
+---
+
 ## 에러 응답
 
 ### 4xx 클라이언트 에러
@@ -330,6 +501,14 @@ curl -X POST "http://localhost:8000/batch-analyze" \
      -F "files=@panel1.jpg" \
      -F "files=@panel2.jpg" \
      -F "files=@panel3.jpg"
+```
+
+#### 4. DB 연동 패널 분석
+```bash
+curl -X POST "http://localhost:8000/panels/analyze" \
+     -F "file=@panel_image.jpg" \
+     -F "panel_id=123" \
+     -F "user_id=example-user-id"
 ```
 
 ### JavaScript (Fetch) 예시

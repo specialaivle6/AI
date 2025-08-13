@@ -1,19 +1,23 @@
 solar-panel-ai-service/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                 # FastAPI 앱 진입점 (YOLOv8 기반)
+│   ├── main.py                 # FastAPI 앱 진입점 (YOLOv8 기반 + DB 연동)
 │   ├── core/
 │   │   ├── __init__.py
-│   │   └── config.py          # 설정 관리 (YOLOv8 설정 포함)
+│   │   └── config.py          # 설정 관리 (환경변수 지원, DB 설정 포함)
 │   ├── services/
 │   │   ├── __init__.py
-│   │   └── damage_analyzer.py  # YOLOv8 기반 손상 분석 서비스
+│   │   ├── damage_analyzer.py  # YOLOv8 기반 손상 분석 서비스
+│   │   ├── database_service.py # DB 연동 서비스 (PanelImage, PanelImageReport)
+│   │   └── panel_analysis_service.py # 통합 분석 서비스 (AI + DB)
 │   ├── api/
 │   │   └── __init__.py
 │   ├── models/
-│   │   └── __init__.py
+│   │   ├── __init__.py
+│   │   └── schemas.py         # Pydantic 모델 (DB 스키마 매핑)
 │   └── utils/
-│       └── __init__.py
+│       ├── __init__.py
+│       └── image_utils.py     # 이미지 처리 유틸리티
 ├── models/                    # 학습된 모델 파일 저장
 │   ├── yolov8_seg_0812_v0.1.pt  # 커스텀 YOLOv8 세그멘테이션 모델
 │   └── mobilenet_v3_small.pth   # 레거시 MobileNet 모델 (사용 안함)
@@ -22,21 +26,27 @@ solar-panel-ai-service/
 ├── temp/                      # 임시 파일 저장
 ├── uploads/                   # 업로드된 이미지 저장
 ├── tests/                     # 테스트 코드 (향후 추가)
-├── requirements.txt           # pip 의존성 (YOLOv8, ultralytics 포함)
+├── requirements.txt           # pip 의존성 (NumPy 호환성 수정)
 ├── Dockerfile                 # Docker 배포용 (YOLOv8 환경)
 ├── README.md                  # 프로젝트 메인 문서
 ├── guide.md                   # 빠른 시작 가이드
 ├── API_SPECIFICATION.md       # 상세 API 명세서
-└── test_api.py               # API 테스트 스크립트
+├── test_api.py               # API 테스트 스크립트
+├── solar.sql                 # DB 스키마 정의 (PanelImage, PanelImageReport 등)
+└── 프로젝트 구조.txt         # 현재 파일 구조 설명
 
 ---
 
 ## 📂 주요 디렉토리 및 파일 설명
 
 ### 🔧 app/ - 메인 애플리케이션
-- **main.py**: FastAPI 애플리케이션 진입점, YOLOv8 기반 손상 분석 API 서버
-- **core/config.py**: 서비스 설정 관리 (모델 경로, 임계값, 성능 설정 등)
+- **main.py**: FastAPI 애플리케이션 진입점, YOLOv8 기반 손상 분석 + DB 연동 API 서버
+- **core/config.py**: 서비스 설정 관리 (환경변수 지원, 모델 경로, DB 설정 등)
 - **services/damage_analyzer.py**: YOLOv8 모델을 사용한 태양광 패널 손상 분석 핵심 로직
+- **services/database_service.py**: PanelImage, PanelImageReport 테이블 연동 서비스
+- **services/panel_analysis_service.py**: AI 분석 + DB 저장을 통합한 완전한 비즈니스 서비스
+- **models/schemas.py**: Pydantic 모델들 (API 요청/응답, DB 스키마 매핑)
+- **utils/image_utils.py**: 이미지 검증, 전처리, 메타데이터 추출 유틸리티
 
 ### 🤖 models/ - AI 모델 저장소
 - **yolov8_seg_0812_v0.1.pt**: 커스텀 훈련된 YOLOv8 세그멘테이션 모델 (메인 모델)
@@ -50,7 +60,8 @@ solar-panel-ai-service/
 - **README.md**: 프로젝트 개요, 설치 방법, 사용 가이드
 - **guide.md**: 5분만에 시작하는 빠른 시작 가이드
 - **API_SPECIFICATION.md**: REST API 상세 명세서
-- **requirements.txt**: Python 패키지 의존성 (ultralytics, fastapi 등)
+- **solar.sql**: 데이터베이스 스키마 정의 (비즈니스 요구사항 반영)
+- **requirements.txt**: Python 패키지 의존성 (NumPy 호환성 문제 해결)
 - **Dockerfile**: YOLOv8 환경 Docker 컨테이너 설정
 
 ---
@@ -91,6 +102,9 @@ solar-panel-ai-service/
 - **logs/, temp/, uploads/**: 데이터 관리를 위한 디렉토리 구조
 - **API_SPECIFICATION.md**: 상세 API 문서
 - **guide.md**: 개발자 친화적 빠른 시작 가이드
+- **services/database_service.py**: DB 연동 서비스
+- **services/panel_analysis_service.py**: 통합 분석 서비스
+- **models/schemas.py, utils/image_utils.py**: 데이터 검증 및 전처리 유틸리티
 
 ### ❌ 제거된 구조 (v1.0에서)
 - **models/model_loader.py**: MobileNet 전용 로더 (더 이상 사용 안함)

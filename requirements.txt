@@ -15,9 +15,10 @@ Pillow==10.1.0
 opencv-python==4.8.1.78
 matplotlib==3.7.2
 
-# 유틸리티
-numpy==1.24.3
+# 유틸리티 - NumPy 버전 고정으로 호환성 문제 해결
+numpy>=1.24.0,<2.0.0
 pandas==2.0.3
+
 
 # 보안 및 인증
 python-jose[cryptography]==3.3.0

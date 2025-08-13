@@ -180,6 +180,98 @@ def test_error_cases():
         print(f"3. 너무 많은 파일 테스트 실패: {e}")
 
 
+def test_new_database_api():
+    """새로운 DB 연동 API 테스트"""
+    print("\n🔗 DB 연동 API 테스트")
+
+    # 테스트 이미지 확인
+    test_images = [
+        "test_image.jpg",
+        "sample_panel.jpg",
+        "panel_test.png"
+    ]
+
+    test_image = None
+    for image_path in test_images:
+        if Path(image_path).exists():
+            test_image = image_path
+            break
+
+    if not test_image:
+        print("⚠️ 테스트용 이미지 파일이 없어 DB 연동 API 테스트를 건너뜁니다.")
+        return False
+
+    try:
+        # 새로운 DB 연동 API 테스트
+        with open(test_image, "rb") as f:
+            files = {"file": (Path(test_image).name, f, "image/jpeg")}
+            params = {
+                "panel_id": 1234,
+                "user_id": "test123"  # 짧은 문자열로 UUID 변환 테스트
+            }
+            response = requests.post(
+                "http://localhost:8000/panels/analyze",
+                files=files,
+                params=params
+            )
+
+        print(f"DB 연동 분석 결과:")
+        if response.status_code == 200:
+            result = response.json()
+
+            print(f"✅ 성공: panel_id={params['panel_id']}")
+            print(f"   Panel Image ID: {result.get('panel_image_id', 'N/A')}")
+            print(f"   Report ID: {result.get('panel_image_report_id', 'N/A')}")
+            print(f"   권장 상태: {result.get('recommended_status', 'N/A')}")
+            print(f"   권장 조치: {result.get('recommended_decision', 'N/A')}")
+
+            # 패널 이력 조회 테스트
+            history_response = requests.get(f"http://localhost:8000/panels/{params['panel_id']}/history")
+            if history_response.status_code == 200:
+                history = history_response.json()
+                print(f"   이력 조회: {history.get('total_analyses', 0)}개 분석 기록")
+
+        else:
+            print(f"❌ 실패: {response.status_code}")
+            print(f"오류: {response.text}")
+
+        return response.status_code == 200
+
+    except Exception as e:
+        print(f"DB 연동 API 테스트 실패: {e}")
+        return False
+
+
+def test_report_status_management():
+    """리포트 상태 관리 API 테스트"""
+    print("\n📊 리포트 상태 관리 테스트")
+
+    try:
+        # 리포트 상태 업데이트 테스트
+        report_id = 1  # 임시 리포트 ID
+        new_status = "처리중"
+
+        response = requests.put(
+            f"http://localhost:8000/reports/{report_id}/status",
+            json={"status": new_status}
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            print(f"✅ 리포트 상태 업데이트 성공:")
+            print(f"   Report ID: {result.get('report_id', 'N/A')}")
+            print(f"   새 상태: {result.get('new_status', 'N/A')}")
+        else:
+            print(f"❌ 리포트 상태 업데이트 실패: {response.status_code}")
+            print(f"오류: {response.text}")
+
+        return response.status_code == 200
+
+    except Exception as e:
+        print(f"리포트 상태 관리 테스트 실패: {e}")
+        return False
+
+
 def main():
     """메인 테스트 실행"""
     print("🚀 YOLOv8 기반 태양광 패널 손상 분석 API 테스트 시작\n")
@@ -230,6 +322,18 @@ def main():
     # 4. 에러 케이스 테스트
     print("\n4️⃣ 에러 케이스 테스트")
     test_error_cases()
+
+    time.sleep(1)
+
+    # 5. 새로운 DB 연동 API 테스트
+    print("\n5️⃣ 새로운 DB 연동 API 테스트")
+    test_new_database_api()
+
+    time.sleep(1)
+
+    # 6. 리포트 상태 관리 API 테스트
+    print("\n6️⃣ 리포트 상태 관리 API 테스트")
+    test_report_status_management()
 
     print("\n✅ 모든 테스트 완료!")
     print("\n📌 참고사항:")
