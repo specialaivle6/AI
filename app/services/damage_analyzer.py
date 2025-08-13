@@ -43,9 +43,8 @@ class DamageAnalyzer:
                 return  # 모델 다운로드 없이 종료
 
             # 비동기적으로 모델 로드
-            await asyncio.get_event_loop().run_in_executor(
-                None, self._load_model
-            )
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._load_model)
 
             self.is_model_loaded = True
             logger.info("✅ YOLOv8 모델 로딩 완료")
@@ -242,6 +241,15 @@ class DamageAnalyzer:
             priority = "LOW"
             risk_level = "MINIMAL"
 
+        # PanelImageReport 테이블용 패널 상태 결정
+        panel_status = self._determine_panel_status(critical_damage, contamination, overall_damage)
+
+        # 손상 정도 (0-100 점수)
+        damage_degree = self._calculate_damage_degree(critical_damage, overall_damage)
+
+        # 조치 결정
+        decision = self._determine_decision(critical_damage, contamination, overall_damage)
+
         # 권장 조치사항
         recommendations = []
         estimated_cost = 0
@@ -268,8 +276,40 @@ class DamageAnalyzer:
             'estimated_repair_cost_krw': int(estimated_cost),
             'estimated_performance_loss_percent': round(performance_loss, 1),
             'maintenance_urgency_days': self._calculate_maintenance_urgency(critical_damage, overall_damage),
-            'business_impact': self._assess_business_impact(overall_damage, critical_damage)
+            'business_impact': self._assess_business_impact(overall_damage, critical_damage),
+            # PanelImageReport 테이블 매핑용 필드들
+            'panel_status': panel_status,
+            'damage_degree': damage_degree,
+            'decision': decision
         }
+
+    def _determine_panel_status(self, critical_damage: float, contamination: float, overall_damage: float) -> str:
+        """패널 상태 결정 (DB용)"""
+        if critical_damage > 5:
+            return "손상"
+        elif contamination > 10 or overall_damage > 15:
+            return "오염"
+        else:
+            return "정상"
+
+    def _calculate_damage_degree(self, critical_damage: float, overall_damage: float) -> int:
+        """손상 정도 계산 (0-100 점수)"""
+        # 심각한 손상에 더 큰 가중치 부여
+        weighted_damage = critical_damage * 2 + overall_damage
+        # 0-100 범위로 정규화
+        damage_score = min(int(weighted_damage), 100)
+        return damage_score
+
+    def _determine_decision(self, critical_damage: float, contamination: float, overall_damage: float) -> str:
+        """조치 결정 (DB용)"""
+        if critical_damage > 15:
+            return "교체"
+        elif critical_damage > 5:
+            return "수리"
+        elif contamination > 10 or overall_damage > 15:
+            return "단순 오염"
+        else:
+            return "단순 오염"  # 기본값
 
     def _calculate_maintenance_urgency(self, critical_damage: float, overall_damage: float) -> int:
         """유지보수 긴급도 계산 (일 단위)"""

@@ -1,0 +1,39 @@
+version: '3.8'
+
+# 프로덕션 환경용 Docker Compose 오버라이드
+services:
+  solar-panel-ai:
+    environment:
+      - LOG_LEVEL=WARNING
+      - DEBUG=false
+      - CORS_ORIGINS=https://your-frontend-domain.com,https://your-backend-domain.com
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  nginx:
+    image: nginx:alpine
+    container_name: solar-panel-ai-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - solar-panel-ai
+    restart: always
+    networks:
+      - ai-network

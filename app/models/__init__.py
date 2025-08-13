@@ -11,19 +11,40 @@ __all__ = []
 """
 Models Package - 데이터 모델 및 스키마
 
-Pydantic 모델들과 DB 스키마 정의를 포함합니다.
+백엔드 연동을 위한 Pydantic 모델들과 API 스키마 정의를 포함합니다.
+AI 서버는 순수 분석 기능에 집중하며, DB 연동은 백엔드에서 처리합니다.
 """
 
 from .schemas import (
-    PanelStatus, Decision, RequestStatus,
-    PanelImageCreate, PanelImageResponse,
-    PanelImageReportCreate, PanelImageReportResponse,
-    AnalysisRequest, AnalysisResponse
+    # Enum 타입들
+    PanelStatus,
+    Decision,
+
+    # API 통신용 모델들
+    DamageAnalysisRequest,
+    DamageAnalysisResponse,
+    DamageAnalysisResult,
+    BusinessAssessment,
+    DetectionDetail,
+
+    # 시스템 응답 모델들
+    HealthCheckResponse,
+    ErrorResponse
 )
 
 __all__ += [
-    "PanelStatus", "Decision", "RequestStatus",
-    "PanelImageCreate", "PanelImageResponse", 
-    "PanelImageReportCreate", "PanelImageReportResponse",
-    "AnalysisRequest", "AnalysisResponse"
+    # Enum 타입들
+    "PanelStatus",
+    "Decision",
+
+    # API 통신용 모델들
+    "DamageAnalysisRequest",
+    "DamageAnalysisResponse",
+    "DamageAnalysisResult",
+    "BusinessAssessment",
+    "DetectionDetail",
+
+    # 시스템 응답 모델들
+    "HealthCheckResponse",
+    "ErrorResponse"
 ]

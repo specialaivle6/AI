@@ -1,16 +1,57 @@
 """
 이미지 처리 유틸리티
 
-이미지 검증, 전처리, 후처리 관련 공통 함수들
+이미지 검증, 전처리, 후처리, S3 다운로드 관련 공통 함수들
 """
 
 import io
+import httpx
 from PIL import Image
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Dict, Any
 import logging
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+
+async def download_image_from_s3(s3_url: str, timeout: int = 30) -> bytes:
+    """
+    S3 URL에서 이미지를 다운로드합니다.
+
+    Args:
+        s3_url: S3 이미지 URL
+        timeout: 다운로드 타임아웃 (초)
+
+    Returns:
+        bytes: 이미지 바이트 데이터
+
+    Raises:
+        Exception: 다운로드 실패 시
+    """
+    try:
+        logger.info(f"S3 이미지 다운로드 시작: {s3_url}")
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(s3_url)
+            response.raise_for_status()
+
+            image_bytes = response.content
+
+            # 이미지 유효성 검증
+            filename = urlparse(s3_url).path.split('/')[-1]
+            if not validate_image_file(image_bytes, filename):
+                raise ValueError(f"유효하지 않은 이미지 파일: {filename}")
+
+            logger.info(f"S3 이미지 다운로드 완료: {len(image_bytes)} bytes")
+            return image_bytes
+
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP 오류로 S3 이미지 다운로드 실패: {e}")
+        raise Exception(f"S3 이미지 다운로드 실패: {str(e)}")
+    except Exception as e:
+        logger.error(f"S3 이미지 다운로드 중 오류: {e}")
+        raise
 
 
 def validate_image_file(file_bytes: bytes, filename: str, max_size: int = 20 * 1024 * 1024) -> bool:
@@ -50,31 +91,37 @@ def validate_image_file(file_bytes: bytes, filename: str, max_size: int = 20 * 1
         return False
 
 
-def get_image_info(file_bytes: bytes) -> Optional[dict]:
+def get_image_info(image_bytes: bytes, url: str = "") -> Dict[str, Any]:
     """
-    이미지 기본 정보 추출
+    이미지 정보를 추출합니다.
 
     Args:
-        file_bytes: 이미지 파일 바이트
+        image_bytes: 이미지 바이트 데이터
+        url: 이미지 URL (선택사항)
 
     Returns:
-        dict: 이미지 정보 (크기, 형식, 모드 등)
+        dict: 이미지 정보
     """
     try:
-        image = Image.open(io.BytesIO(file_bytes))
+        image = Image.open(io.BytesIO(image_bytes))
+        filename = urlparse(url).path.split('/')[-1] if url else "unknown"
 
         return {
-            'width': image.width,
-            'height': image.height,
-            'format': image.format,
-            'mode': image.mode,
-            'size_bytes': len(file_bytes),
-            'aspect_ratio': round(image.width / image.height, 2)
+            "filename": filename,
+            "size": f"{image.width}x{image.height}",
+            "format": image.format,
+            "mode": image.mode,
+            "file_size_bytes": len(image_bytes)
         }
-
     except Exception as e:
-        logger.error(f"이미지 정보 추출 실패: {str(e)}")
-        return None
+        logger.error(f"이미지 정보 추출 실패: {e}")
+        return {
+            "filename": "unknown",
+            "size": "unknown",
+            "format": "unknown",
+            "mode": "unknown",
+            "file_size_bytes": len(image_bytes)
+        }
 
 
 def resize_image_if_needed(file_bytes: bytes, max_dimension: int = 2048) -> bytes:
