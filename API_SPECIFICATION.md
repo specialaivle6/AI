@@ -102,7 +102,12 @@ AI 모델 로딩 상태를 포함한 상세한 서비스 상태를 확인합니�
     "estimated_repair_cost_krw": 15340,
     "estimated_performance_loss_percent": 12.3,
     "maintenance_urgency_days": 30,
-    "business_impact": "경미한 성능 영향 - 계획적 유지보수 권장"
+    "business_impact": "경미한 성능 영향 - 계획적 유지보수 권장",
+    
+    // PanelImageReport 테이블 매핑용 필드들 (v3.0에서 추가)
+    "panel_status": "오염",
+    "damage_degree": 25,
+    "decision": "단순 오염"
   },
   "detection_details": {
     "total_detections": 3,

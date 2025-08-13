@@ -47,7 +47,7 @@ curl http://localhost:8000/api/damage-analysis/health
 # 테스트 스크립트 실행
 python test_api.py
 
-# 또는 백엔드에서 직접 호출
+# 또는 백엔드에서 직접 호출 (PanelImageReport 매핑 지원)
 curl -X POST http://localhost:8000/api/damage-analysis/analyze \
   -H "Content-Type: application/json" \
   -d '{
@@ -55,6 +55,22 @@ curl -X POST http://localhost:8000/api/damage-analysis/analyze \
     "user_id": "550e8400-e29b-41d4-a716-446655440000",
     "panel_imageurl": "https://your-s3-bucket.com/panel-image.jpg"
   }'
+```
+
+### ✅ 6단계: Docker 배포 (선택사항)
+```bash
+# 환경변수 설정
+cp .env.example .env
+
+# 개발 환경 배포
+docker-compose up -d
+
+# 또는 자동 배포 스크립트 사용
+chmod +x deploy.sh
+./deploy.sh
+
+# 프로덕션 환경 배포
+./deploy.sh production
 ```
 
 ---
@@ -243,3 +259,34 @@ cp new_model.pt models/yolov8_seg_0812_v0.1.pt
 - [API 명세서](API_SPECIFICATION.md)
 - [README.md](README.md)
 - [백엔드 연동 가이드](README.md#백엔드-연동-가이드)
+
+---
+
+## 🔗 PanelImageReport 테이블 매핑
+
+AI 서버는 백엔드의 PanelImageReport 테이블에 저장할 모든 데이터를 제공합니다:
+
+```json
+{
+  "business_assessment": {
+    "panel_status": "오염",        // DB: status 필드
+    "damage_degree": 25,           // DB: damage_degree 필드  
+    "decision": "단순 오염"        // DB: decision 필드
+  }
+}
+```
+
+### 백엔드 DB 매핑 예시
+```java
+public PanelImageReport mapToEntity(DamageAnalysisResponse response) {
+    return PanelImageReport.builder()
+        .panelId(response.getPanelId())
+        .userId(response.getUserId())
+        .status(response.getBusinessAssessment().getPanelStatus())
+        .damageDegree(response.getBusinessAssessment().getDamageDegree())
+        .decision(response.getBusinessAssessment().getDecision())
+        .requestStatus("처리 완료")  // 백엔드에서 설정
+        .createdAt(response.getTimestamp().toLocalDate())
+        .build();
+}
+```

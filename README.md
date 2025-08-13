@@ -83,7 +83,16 @@ YOLOv8 AI 모델
   "business_assessment": {
     "priority": "MEDIUM",
     "risk_level": "LOW",
-    "recommendations": ["패널 청소 필요", "물리적 손상 부위 점검 권장"]
+    "recommendations": ["패널 청소 필요", "물리적 손상 부위 점검 권장"],
+    "estimated_repair_cost_krw": 15340,
+    "estimated_performance_loss_percent": 12.3,
+    "maintenance_urgency_days": 30,
+    "business_impact": "경미한 성능 영향 - 계획적 유지보수 권장",
+    
+    // PanelImageReport 테이블 매핑용 필드들 (백엔드 DB 저장용)
+    "panel_status": "오염",
+    "damage_degree": 25,
+    "decision": "단순 오염"
   },
   "confidence_score": 0.892,
   "processing_time_seconds": 1.28
@@ -163,13 +172,28 @@ AI/
 │   │   └── damage_analyzer.py  # YOLOv8 분석 서비스
 │   ├── utils/
 │   │   └── image_utils.py   # S3 다운로드, 이미지 처리
-│   └── core/
-│       └── config.py        # 설정 관리
+│   ├── core/
+│   │   └── config.py        # 설정 관리
+│   └── api/
+│       └── __init__.py      # 향후 라우터 확장용
 ├── models/
 │   └── yolov8_seg_0812_v0.1.pt  # AI 모델 파일
+├── nginx/
+│   └── nginx.conf           # 프로덕션용 nginx 설정
+├── logs/                    # 로그 파일 저장소
+├── temp/                    # 임시 파일 저장소
+├── uploads/                 # 업로드 파일 저장소 (사용 안함)
 ├── requirements.txt         # Python 의존성
+├── Dockerfile              # Docker 이미지 빌드 설정
+├── docker-compose.yml      # 개발환경용 Docker Compose
+├── docker-compose.prod.yml # 프로덕션용 Docker Compose
+├── deploy.sh               # 자동 배포 스크립트
+├── .env.example            # 환경변수 템플릿
 ├── test_api.py             # API 테스트 스크립트
-└── README.md
+├── solar.sql               # DB 스키마 (백엔드 참고용)
+├── API_SPECIFICATION.md    # API 명세서
+├── guide.md                # 빠른 시작 가이드
+└── README.md               # 메인 문서
 ```
 
 ---

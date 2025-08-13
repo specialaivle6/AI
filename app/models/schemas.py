@@ -53,6 +53,11 @@ class BusinessAssessment(BaseModel):
     maintenance_urgency_days: Optional[int] = None
     business_impact: Optional[str] = None
 
+    # PanelImageReport 테이블 매핑용 추가 필드들
+    panel_status: str = Field(..., description="패널 상태: 손상, 오염, 정상")
+    damage_degree: Optional[int] = Field(None, description="손상 정도 (0-100)")
+    decision: str = Field(..., description="조치 결정: 단순 오염, 수리, 교체")
+
 
 class DamageAnalysisResult(BaseModel):
     """손상 분석 결과"""
@@ -83,6 +88,19 @@ class DamageAnalysisResponse(BaseModel):
     confidence_score: float
     timestamp: datetime = Field(default_factory=datetime.now)
     processing_time_seconds: Optional[float] = None
+
+    # PanelImageReport 테이블 매핑을 위한 편의 메서드들
+    def get_panel_status(self) -> str:
+        """DB용 패널 상태 반환"""
+        return self.business_assessment.panel_status
+
+    def get_damage_degree(self) -> Optional[int]:
+        """DB용 손상 정도 반환"""
+        return self.business_assessment.damage_degree
+
+    def get_decision(self) -> str:
+        """DB용 조치 결정 반환"""
+        return self.business_assessment.decision
 
 
 class HealthCheckResponse(BaseModel):
