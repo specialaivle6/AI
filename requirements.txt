@@ -8,8 +8,8 @@ pydantic==2.11.7
 httpx==0.25.2
 
 # PyTorch (CPU 버전) - YOLOv8 손상 분석용
-torch==2.1.0
-torchvision==0.16.0
+torch==2.2.0
+torchvision==0.17.0
 
 # YOLOv8 및 AI 모델 - 손상 분석용
 ultralytics==8.0.196

@@ -30,6 +30,16 @@ from app.utils.image_utils import download_image_from_s3, get_image_info
 from app.utils.report_generator import generate_performance_report
 from app.utils.performance_utils import estimate_panel_cost
 
+""" s3 업로드용 """
+import os, time
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+
+AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
+S3_BUCKET = os.getenv("S3_BUCKET", "solar-panel-storage")
+
+s3 = boto3.client("s3", region_name=AWS_REGION)
+
 # 로깅 초기화
 setup_logging()
 logger = get_logger(__name__)
@@ -258,16 +268,19 @@ async def generate_performance_report_endpoint(request: PanelRequest):
             cost=analysis_result.get("estimated_cost")
         )
 
-        processing_time = time.time() - start_time
+        s3_key = upload_pdf_to_s3(report_path, request.user_id)
+
+        # (선택) 로컬 파일 정리
+        try:
+            os.remove(report_path)
+        except FileNotFoundError:
+            pass
 
         response = PerformanceReportResponse(
             user_id=request.user_id,
-            address=report_path,
+            address=s3_key,                                  # ✅ 로컬 경로 대신 S3 key로 반환
             created_at=datetime.now().isoformat()
         )
-
-        log_api_request("POST", "/api/performance-analysis/report",
-                       request.user_id, request.id, processing_time)
 
         return response
 
@@ -325,6 +338,25 @@ async def analyze_performance_detailed(request: PanelRequest):
     except Exception as e:
         logger.error(f"상세 성능 분석 중 예상치 못한 오류: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"상세 분석 처리 오류: {str(e)}")
+        
+
+def upload_pdf_to_s3(local_path: str, user_id) -> str:
+    """
+    로컬 PDF를 S3에 업로드하고 S3 object key를 반환.
+    파일명 충돌 방지를 위해 timestamp 포함.
+    """
+    file_name = os.path.basename(local_path) or "report.pdf"
+    ts = int(time.time())
+    key = f"reports/{user_id}/{ts}.pdf"
+    extra = {
+        "ContentType": "application/pdf",
+        "ContentDisposition": f'attachment; filename="{file_name}"'
+    }
+    try:
+        s3.upload_file(Filename=local_path, Bucket=S3_BUCKET, Key=key, ExtraArgs=extra)
+        return key
+    except (BotoCoreError, ClientError) as e:
+        raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
 
 
 if __name__ == "__main__":
@@ -335,3 +367,4 @@ if __name__ == "__main__":
         reload=settings.is_development,
         log_level=settings.log_level.lower()
     )
+
