@@ -1,6 +1,7 @@
 """
 태양광 패널 성능 예측 및 분석 서비스
 개선된 설정 시스템과 예외 처리 적용
+ReportService 통합
 """
 
 import pandas as pd
@@ -23,6 +24,8 @@ from app.core.logging_config import get_logger, log_analysis_result, log_perform
 
 from app.models.schemas import PanelRequest, PerformanceAnalysisResult, PerformanceReportResponse
 from app.models.model_features import MODEL_FEATURES
+from app.services.report_service import ReportService
+from app.utils.performance_utils import find_nearest_region  # 고급 지역 처리 함수 추가
 
 logger = get_logger(__name__)
 
@@ -35,6 +38,7 @@ class PerformanceAnalyzer:
         self.is_model_loaded = False
         self.model_path = settings.performance_model_path
         self.model_features = MODEL_FEATURES
+        self.report_service = None  # ReportService 인스턴스
 
     async def initialize(self):
         """모델 초기화 및 로딩"""
@@ -55,8 +59,11 @@ class PerformanceAnalyzer:
                 timeout=settings.performance_analysis_timeout
             )
 
+            # ReportService 초기화 (같은 모델 공유)
+            self.report_service = ReportService(model=self.model)
+
             self.is_model_loaded = True
-            logger.info("✅ 성능 예측 모델 로딩 완료")
+            logger.info("✅ 성능 예측 모델 및 리포트 서비스 로딩 완료")
 
         except asyncio.TimeoutError:
             raise TimeoutException("성능 예측 모델 로딩", settings.performance_analysis_timeout)
@@ -288,16 +295,29 @@ class PerformanceAnalyzer:
             return 0.0
 
     def _determine_region(self, lat: float, lon: float) -> str:
-        """위도/경도 기반 지역 판정"""
-        # 간단한 지역 분류 (실제로는 더 정교한 로직 필요)
-        if lat > 37.5:
-            return "Seoul"
-        elif lat > 36.0:
-            return "Daejeon"
-        elif lat > 35.0:
-            return "Daegu"
-        else:
-            return "Busan"
+        """GPS 좌표 기반 정확한 지역 판정 (고급 버전으로 업그레이드)"""
+        try:
+            # performance_utils의 고급 지역 처리 함수 사용
+            region_full_name = find_nearest_region(lat, lon)
+
+            # "Region_Seoul" 형태에서 "Seoul" 추출
+            if region_full_name.startswith("Region_"):
+                return region_full_name.replace("Region_", "")
+
+            # 기존 호환성을 위한 폴백
+            return region_full_name
+
+        except Exception as e:
+            logger.warning(f"고급 지역 처리 실패, 기본 로직 사용: {e}")
+            # 기존 단순 로직으로 폴백
+            if lat > 37.5:
+                return "Seoul"
+            elif lat > 36.0:
+                return "Daejeon"
+            elif lat > 35.0:
+                return "Daegu"
+            else:
+                return "Busan"
 
     def _create_panel_info(self, request: PanelRequest) -> Dict[str, Any]:
         """패널 정보 메타데이터 생성"""
@@ -340,4 +360,113 @@ class PerformanceAnalyzer:
                 "average": round(np.mean(request.sunshine), 1),
                 "total": round(np.sum(request.sunshine), 1)
             }
+        }
+
+    # === 새로운 통합 리포트 기능 ===
+
+    async def analyze_with_report(self, request: PanelRequest) -> Dict[str, Any]:
+        """
+        성능 분석 + PDF 리포트 생성 통합 기능
+
+        Args:
+            request: 패널 요청 데이터
+
+        Returns:
+            Dict: 분석 결과 + 리포트 경로
+        """
+        start_time = time.time()
+
+        if not self.is_loaded() or not self.report_service:
+            raise PerformanceAnalysisException("모델 또는 리포트 서비스가 로드되지 않았습니다", request.user_id)
+
+        try:
+            # 1. 기본 성능 분석 수행
+            analysis_result = await self.analyze_performance(request)
+
+            # 2. ReportService를 통한 고급 리포트 생성
+            loop = asyncio.get_event_loop()
+            report_result = await asyncio.wait_for(
+                loop.run_in_executor(None, self.report_service.process_report, request),
+                timeout=settings.performance_analysis_timeout * 2  # 리포트 생성은 더 오래 걸릴 수 있음
+            )
+
+            # 3. 결과 통합
+            integrated_result = {
+                **analysis_result,  # 기존 성능 분석 결과
+                "advanced_cost_estimate": report_result["cost_estimate"],  # 고급 비용 계산
+                "report_path": report_result["report_path"],  # PDF 리포트 경로
+                "lifespan_years": report_result.get("lifespan_years"),  # 수명 예측
+                "created_at": report_result["created_at"]
+            }
+
+            processing_time = time.time() - start_time
+
+            # 로깅
+            log_analysis_result(
+                "Performance Analysis with Report",
+                True,
+                processing_time,
+                user_id=request.user_id,
+                panel_id=request.id,
+                performance_ratio=f"{analysis_result['performance_ratio']:.2f}",
+                additional_info=f"Report: {report_result['report_path']}"
+            )
+
+            return integrated_result
+
+        except (PerformanceAnalysisException, TimeoutException):
+            raise
+        except Exception as e:
+            processing_time = time.time() - start_time
+            log_analysis_result(
+                "Performance Analysis with Report",
+                False,
+                processing_time,
+                user_id=request.user_id,
+                error=str(e)
+            )
+            raise PerformanceAnalysisException(f"통합 분석 처리 중 오류: {str(e)}", request.user_id)
+
+    async def generate_report_only(self, request: PanelRequest) -> str:
+        """
+        리포트만 생성 (성능 분석 결과 재사용 안함)
+
+        Args:
+            request: 패널 요청 데이터
+
+        Returns:
+            str: 생성된 PDF 리포트 경로
+        """
+        if not self.report_service:
+            raise PerformanceAnalysisException("리포트 서비스가 초기화되지 않았습니다", request.user_id)
+
+        try:
+            loop = asyncio.get_event_loop()
+            report_result = await asyncio.wait_for(
+                loop.run_in_executor(None, self.report_service.process_report, request),
+                timeout=settings.performance_analysis_timeout * 2
+            )
+
+            logger.info(f"리포트 생성 완료: {report_result['report_path']}")
+            return report_result["report_path"]
+
+        except asyncio.TimeoutError:
+            raise TimeoutException("리포트 생성", settings.performance_analysis_timeout * 2)
+        except Exception as e:
+            logger.error(f"리포트 생성 실패: {str(e)}")
+            raise PerformanceAnalysisException(f"리포트 생성 실패: {str(e)}", request.user_id)
+
+    def get_report_service_status(self) -> Dict[str, Any]:
+        """
+        리포트 서비스 상태 확인
+
+        Returns:
+            Dict: 서비스 상태 정보
+        """
+        return {
+            "performance_analyzer_loaded": self.is_loaded(),
+            "report_service_initialized": self.report_service is not None,
+            "model_shared": self.report_service.model is self.model if self.report_service else False,
+            "model_path": str(self.model_path),
+            "ready_for_integrated_analysis": self.is_loaded() and self.report_service is not None
         }

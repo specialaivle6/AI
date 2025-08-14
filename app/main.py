@@ -246,24 +246,15 @@ async def generate_performance_report_endpoint(request: PanelRequest):
         log_api_request("POST", "/api/performance-analysis/report", request.user_id, request.id)
 
         # 성능 분석 수행
-        analysis_result = await performance_analyzer.analyze_performance(request)
-
-        # PDF 리포트 생성
-        report_path = generate_performance_report(
-            predicted=analysis_result["predicted_generation"],
-            actual=analysis_result["actual_generation"],
-            status=analysis_result["status"],
-            user_id=request.user_id,
-            lifespan=analysis_result.get("lifespan_months", 0) / 12 if analysis_result.get("lifespan_months") else None,
-            cost=analysis_result.get("estimated_cost")
-        )
+        # 통합된 성능 분석 및 고급 리포트 생성 (기존 API 유지, 품질 개선)
+        analysis_result = await performance_analyzer.analyze_with_report(request)
 
         processing_time = time.time() - start_time
 
         response = PerformanceReportResponse(
             user_id=request.user_id,
-            address=report_path,
-            created_at=datetime.now().isoformat()
+            address=analysis_result["report_path"],  # 고급 리포트 경로
+            created_at=analysis_result["created_at"]  # ReportService에서 생성된 정확한 시간
         )
 
         log_api_request("POST", "/api/performance-analysis/report",
