@@ -1,14 +1,3 @@
-#!/bin/bash
-
-# Solar Panel AI Service 배포 스크립트
-# 사용법: ./deploy.sh [환경]
-# 예: ./deploy.sh production
-
-set -e
-
-ENVIRONMENT=${1:-development}
-IMAGE_NAME="solar-panel-ai"
-CONTAINER_NAME="solar-panel-ai-service"
 
 echo "🚀 Solar Panel AI Service 배포 시작 - 환경: $ENVIRONMENT"
 
