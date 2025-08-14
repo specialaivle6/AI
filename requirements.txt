@@ -1,27 +1,43 @@
-# FastAPI 및 웹 서버
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+# FastAPI 및 웹 서버 - 최신 버전으로 통일
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
 python-multipart==0.0.6
+pydantic==2.11.7
 
 # HTTP 클라이언트 (S3 이미지 다운로드용)
 httpx==0.25.2
 
-# PyTorch (CPU 버전)
+# PyTorch (CPU 버전) - YOLOv8 손상 분석용
 torch==2.1.0
 torchvision==0.16.0
 
-# YOLOv8 및 AI 모델
+# YOLOv8 및 AI 모델 - 손상 분석용
 ultralytics==8.0.196
 
 # 이미지 처리
 Pillow==10.1.0
 opencv-python==4.8.1.78
-matplotlib==3.7.2
 
-# 유틸리티 - NumPy 버전 고정으로 호환성 문제 해결
+# 시각화 및 차트 - 최신 버전으로 업데이트
+matplotlib==3.10.5
+
+# 데이터 처리 - numpy 1.x로 호환성 확보
 numpy>=1.24.0,<2.0.0
-pandas==2.0.3
+pandas==2.3.1
 
+# ML 모델링 - new_service 성능 예측용
+scikit-learn==1.7.1
+xgboost==3.0.4
+joblib==1.5.1
+
+# 지리 정보 처리 - new_service 지역 매핑용
+geopy==2.4.1
+
+# PDF 리포트 생성 - new_service 리포트용
+reportlab==4.4.3
+
+# 파일 처리 - Excel 스펙 파일 읽기용
+openpyxl==3.1.5
 
 # 보안 및 인증
 python-jose[cryptography]==3.3.0

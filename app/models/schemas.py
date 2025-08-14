@@ -116,3 +116,69 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.now)
+
+
+# === 성능 예측 서비스용 모델들 (new_service 통합) ===
+
+class PanelRequest(BaseModel):
+    """태양광 패널 성능 예측 요청"""
+    user_id: str
+    id: int
+    model_name: str
+    serial_number: int
+    pmp_rated_w: float
+    temp_coeff: float
+    annual_degradation_rate: float
+    lat: float
+    lon: float
+    installed_at: str
+    installed_angle: float
+    installed_direction: str
+    temp: List[float]
+    humidity: List[float]
+    windspeed: List[float]
+    sunshine: List[float]
+    actual_generation: float
+
+
+class PerformanceReportResponse(BaseModel):
+    """성능 예측 리포트 응답"""
+    user_id: str
+    address: str = Field(..., description="생성된 PDF 리포트 파일 경로")
+    created_at: str = Field(..., description="리포트 생성 시간")
+
+
+class PerformanceAnalysisResult(BaseModel):
+    """성능 분석 결과"""
+    predicted_generation: float = Field(..., description="예측 발전량 (kWh)")
+    actual_generation: float = Field(..., description="실제 발전량 (kWh)")
+    performance_ratio: float = Field(..., description="성능비율 (실측/예측)")
+    status: str = Field(..., description="패널 상태")
+    lifespan_months: Optional[float] = Field(None, description="예상 잔여 수명 (개월)")
+    estimated_cost: Optional[int] = Field(None, description="예상 교체 비용 (원)")
+
+
+class PerformanceReportRequest(BaseModel):
+    """성능 예측 리포트 생성 요청 (확장된 버전)"""
+    panel_data: PanelRequest
+    include_charts: bool = Field(default=True, description="차트 포함 여부")
+    report_format: str = Field(default="pdf", description="리포트 형식")
+
+
+class PerformanceReportDetailResponse(BaseModel):
+    """상세 성능 예측 리포트 응답"""
+    user_id: str
+    panel_id: int
+    
+    # 분석 결과
+    performance_analysis: PerformanceAnalysisResult
+    
+    # 리포트 정보
+    report_path: str
+    created_at: str
+    processing_time_seconds: Optional[float] = None
+    
+    # 메타데이터
+    panel_info: Dict[str, Any] = Field(default_factory=dict)
+    environmental_data: Dict[str, Any] = Field(default_factory=dict)
+
