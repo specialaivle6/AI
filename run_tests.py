@@ -11,8 +11,8 @@ from pathlib import Path
 
 def run_command(command: list, description: str):
     """명령어 실행 및 결과 출력"""
-    print(f"\n🔄 {description}")
-    print(f"📝 실행 명령: {' '.join(command)}")
+    print(f"\n[RUN] {description}")
+    print(f"[CMD] 실행 명령: {' '.join(command)}")
     print("-" * 50)
 
     try:
@@ -21,37 +21,37 @@ def run_command(command: list, description: str):
         if result.stdout:
             print(result.stdout)
         if result.stderr and result.returncode != 0:
-            print("❌ 오류:", result.stderr)
+            print("[ERROR] 오류:", result.stderr)
 
         return result.returncode == 0
     except Exception as e:
-        print(f"❌ 명령 실행 실패: {e}")
+        print(f"[ERROR] 명령 실행 실패: {e}")
         return False
 
 
 def generate_test_images():
     """테스트 이미지 생성"""
-    print("🖼️  테스트 이미지 생성 중...")
+    print("[IMAGE] 테스트 이미지 생성 중...")
     try:
         from tests.test_image_generator import TestImageGenerator
         generator = TestImageGenerator()
         dataset = generator.create_test_dataset()
-        print(f"✅ 테스트 이미지 생성 완료: {len(dataset['valid'])}개 유효, {len(dataset['invalid'])}개 무효")
+        print(f"[SUCCESS] 테스트 이미지 생성 완료: {len(dataset['valid'])}개 유효, {len(dataset['invalid'])}개 무효")
         return True
     except Exception as e:
-        print(f"❌ 테스트 이미지 생성 실패: {e}")
+        print(f"[ERROR] 테스트 이미지 생성 실패: {e}")
         return False
 
 
 def run_unit_tests():
     """단위 테스트 실행"""
-    command = ["python", "-m", "pytest", "tests/unit/", "-v", "-m", "unit"]
+    command = ["python", "-m", "pytest", "tests/unit/", "-v"]
     return run_command(command, "단위 테스트 실행")
 
 
 def run_integration_tests():
     """통합 테스트 실행"""
-    command = ["python", "-m", "pytest", "tests/integration/", "-v", "-m", "integration"]
+    command = ["python", "-m", "pytest", "tests/integration/", "-v"]
     return run_command(command, "통합 테스트 실행")
 
 
@@ -80,14 +80,14 @@ def run_coverage_tests():
             success = False
 
     if success:
-        print("\n📊 커버리지 리포트가 htmlcov/ 디렉토리에 생성되었습니다.")
+        print("\n[REPORT] 커버리지 리포트가 htmlcov/ 디렉토리에 생성되었습니다.")
 
     return success
 
 
 def check_test_environment():
     """테스트 환경 확인"""
-    print("🔍 테스트 환경 확인 중...")
+    print("[CHECK] 테스트 환경 확인 중...")
 
     # 필요한 디렉토리 확인
     required_dirs = [
@@ -103,28 +103,28 @@ def check_test_environment():
             missing_dirs.append(dir_path)
 
     if missing_dirs:
-        print(f"❌ 누락된 디렉토리: {missing_dirs}")
+        print(f"[ERROR] 누락된 디렉토리: {missing_dirs}")
         return False
 
     # 테스트 이미지 확인
     test_images_dir = Path("tests/test_images/valid")
     if not test_images_dir.exists() or len(list(test_images_dir.glob("*.jpg"))) < 5:
-        print("⚠️  테스트 이미지가 부족합니다. 생성하시겠습니까? (y/n)")
+        print("[WARN] 테스트 이미지가 부족합니다. 생성하시겠습니까? (y/n)")
         if input().lower() == 'y':
             return generate_test_images()
         else:
-            print("❌ 테스트 이미지가 필요합니다.")
+            print("[ERROR] 테스트 이미지가 필요합니다.")
             return False
 
     # pytest 설치 확인
     try:
         import pytest
-        print(f"✅ pytest 설치됨: {pytest.__version__}")
+        print(f"[SUCCESS] pytest 설치됨: {pytest.__version__}")
     except ImportError:
-        print("❌ pytest가 설치되지 않음. pip install pytest로 설치해주세요.")
+        print("[ERROR] pytest가 설치되지 않음. pip install pytest로 설치해주세요.")
         return False
 
-    print("✅ 테스트 환경 준비 완료")
+    print("[SUCCESS] 테스트 환경 준비 완료")
     return True
 
 
@@ -144,7 +144,7 @@ def main():
 
     args = parser.parse_args()
 
-    print("🧪 AI 서비스 테스트 실행 스크립트")
+    print("[TEST] AI 서비스 테스트 실행 스크립트")
     print("=" * 50)
 
     # 테스트 이미지 생성 (옵션)
@@ -171,10 +171,10 @@ def main():
         success = check_test_environment() and run_coverage_tests()
 
     if success:
-        print("\n🎉 테스트 실행 완료!")
+        print("\n[SUCCESS] 테스트 실행 완료!")
         sys.exit(0)
     else:
-        print("\n❌ 테스트 실행 실패!")
+        print("\n[ERROR] 테스트 실행 실패!")
         sys.exit(1)
 
 

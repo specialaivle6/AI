@@ -106,12 +106,12 @@ class TestExceptions:
 
     def test_model_not_loaded_exception(self):
         """모델 미로드 예외 테스트"""
-        model_name = "TestModel"
+        ai_model_name = "TestAIModel"
         model_path = "/test/path"
 
-        exc = ModelNotLoadedException(model_name, model_path)
+        exc = ModelNotLoadedException(ai_model_name, model_path)
 
-        assert model_name in exc.message
+        assert ai_model_name in exc.message
         assert exc.details["model_path"] == model_path
         assert exc.error_code == "MODEL_NOT_LOADED"
 

@@ -133,8 +133,8 @@ def log_api_request(
     logger.info(f"🌐 {method} {path}{detail_str}")
 
 
-def log_model_status(model_name: str, status: str, **kwargs) -> None:
-    """모델 상태 로깅"""
+def log_model_status(ai_model_name: str, status: str, **kwargs) -> None:
+    """AI 모델 상태 로깅"""
     logger = get_logger("model")
 
     details = " | ".join([f"{k}={v}" for k, v in kwargs.items()])
@@ -145,7 +145,7 @@ def log_model_status(model_name: str, status: str, **kwargs) -> None:
         "unloading": "🔄"
     }.get(status, "ℹ️")
 
-    logger.info(f"{status_emoji} {model_name} {status} | {details}")
+    logger.info(f"{status_emoji} {ai_model_name} AI 모델 {status} | {details}")
 
 
 def log_analysis_result(

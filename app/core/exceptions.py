@@ -24,8 +24,8 @@ class AIServiceException(Exception):
 class ModelNotLoadedException(AIServiceException):
     """AI 모델이 로드되지 않았을 때 발생하는 예외"""
 
-    def __init__(self, model_name: str, model_path: str):
-        message = f"{model_name} 모델이 로드되지 않았습니다"
+    def __init__(self, ai_model_name: str, model_path: str):
+        message = f"{ai_model_name} AI 모델이 로드되지 않았습니다"
         details = {"model_path": model_path}
         super().__init__(message, "MODEL_NOT_LOADED", details)
 
@@ -33,8 +33,8 @@ class ModelNotLoadedException(AIServiceException):
 class ModelLoadFailedException(AIServiceException):
     """AI 모델 로딩 실패 시 발생하는 예외"""
 
-    def __init__(self, model_name: str, model_path: str, reason: str):
-        message = f"{model_name} 모델 로딩 실패: {reason}"
+    def __init__(self, ai_model_name: str, model_path: str, reason: str):
+        message = f"{ai_model_name} AI 모델 로딩 실패: {reason}"
         details = {"model_path": model_path, "reason": reason}
         super().__init__(message, "MODEL_LOAD_FAILED", details)
 
