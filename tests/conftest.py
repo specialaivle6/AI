@@ -83,21 +83,21 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     print("\n" + "="*50)
     print("[TEST] 테스트 실행 완료")
     print("="*50)
-
+    
     if hasattr(terminalreporter, 'stats'):
         stats = terminalreporter.stats
-
+        
         passed = len(stats.get('passed', []))
         failed = len(stats.get('failed', []))
         skipped = len(stats.get('skipped', []))
-
+        
         print(f"[PASS] 성공: {passed}개")
-        print(f"[FAIL] 실패: {failed}개")
+        print(f"[FAIL] 실패: {failed}개") 
         print(f"[SKIP] 건너뛴 테스트: {skipped}개")
-
+        
         if failed > 0:
             print("\n[WARN] 실패한 테스트가 있습니다. 로그를 확인해주세요.")
         elif passed > 0:
             print("\n[SUCCESS] 모든 테스트가 성공했습니다!")
-
+    
     print("="*50)
