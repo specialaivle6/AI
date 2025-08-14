@@ -15,8 +15,8 @@ TEST_IMAGES_DIR = Path("tests/test_images")
 
 
 @asynccontextmanager
-async def test_server_lifespan(app: FastAPI):
-    """테스트 서버 생명주기 관리"""
+async def server_lifespan(app: FastAPI):
+    """테스트 서버 생명주기 관리 (함수명 변경으로 pytest 수집 방지)"""
     print("🔄 테스트 이미지 서버 시작...")
     yield
     print("🔄 테스트 이미지 서버 종료")
@@ -26,7 +26,7 @@ async def test_server_lifespan(app: FastAPI):
 test_app = FastAPI(
     title="Test Image Server",
     description="테스트용 로컬 이미지 서버",
-    lifespan=test_server_lifespan
+    lifespan=server_lifespan  # 함수명 변경
 )
 
 
