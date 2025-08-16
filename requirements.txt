@@ -1,56 +1,52 @@
-# FastAPI 및 웹 서버 - 최신 버전으로 통일
-fastapi==0.116.1
-uvicorn[standard]==0.35.0
-python-multipart==0.0.6
-pydantic==2.11.7
+# FastAPI & server
+fastapi>=0.111,<1.0
+uvicorn[standard]>=0.29,<0.32
+python-multipart>=0.0.6
+pydantic>=2.6,<3
 
-# HTTP 클라이언트 (S3 이미지 다운로드용)
-httpx==0.25.2
-boto3==1.40.11
+# HTTP / S3
+httpx>=0.26
+boto3>=1.34
 
-# PyTorch (CPU 버전) - YOLOv8 손상 분석용
-torch==2.1.0
-torchvision==0.16.0
+# Torch는 위에서 먼저 설치함 (여기는 적지 않음)
+# torch
+# torchvision
 
-# YOLOv8 및 AI 모델 - 손상 분석용
+# YOLOv8
 ultralytics==8.3.179
 
 # 이미지 처리
-Pillow==10.1.0
-opencv-python==4.8.1.78
+Pillow>=10.2
+opencv-python>=4.10
 
-# 시각화 및 차트 - 최신 버전으로 업데이트
-matplotlib==3.10.5
+# 시각화
+matplotlib>=3.8,<3.10
 
-# 데이터 처리 - numpy 1.x로 호환성 확보
-numpy>=1.24.0,<2.0.0
-pandas==2.3.1
+# 데이터 처리
+numpy>=1.24,<2.0
+pandas>=2.2,<2.4
 
-# ML 모델링 - new_service 성능 예측용
-scikit-learn==1.7.1
-xgboost==3.0.4
-joblib==1.5.1
+# ML
+scikit-learn>=1.4,<1.6
+xgboost==2.0.3
+joblib>=1.3
 
-# 지리 정보 처리 - new_service 지역 매핑용
-geopy==2.4.1
+# 지리 정보
+geopy>=2.4
 
-# PDF 리포트 생성 - new_service 리포트용
-reportlab==4.4.3
+# PDF/엑셀
+reportlab>=4.2
+openpyxl>=3.1
 
-# 파일 처리 - Excel 스펙 파일 읽기용
-openpyxl==3.1.5
+# 보안
+python-jose[cryptography]>=3.3
+passlib[bcrypt]>=1.7
 
-# 보안 및 인증
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-
-# 로깅 및 모니터링
-structlog==23.2.0
-
-# 환경 설정
-python-dotenv==1.0.0
-pydantic-settings==2.1.0
+# 로깅/설정
+structlog>=23.2
+python-dotenv>=1.0
+pydantic-settings>=2.1
 
 # 테스트
-pytest==7.4.3
-pytest-asyncio==0.21.1
+pytest>=7.4
+pytest-asyncio>=0.21

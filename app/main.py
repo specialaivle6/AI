@@ -4,7 +4,8 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
 import time
-from typing import Optional
+from typing import Optional, List, Union
+import asyncio
 from datetime import datetime
 
 # 개선된 임포트
@@ -234,35 +235,67 @@ async def performance_health_check():
     }
 
 
-@app.post("/api/performance-analysis/report", response_model=PerformanceReportResponse)
-async def generate_performance_report_endpoint(request: PanelRequest):
-    """태양광 패널 성능 예측 및 PDF 리포트 생성"""
+from app.models.schemas import (
+    # ...
+    PerformanceReportResponse,
+    PerformanceReportDetailResponse,
+    PerformanceAnalysisResult,
+)
+
+# 기존 함수 시그니처/데코레이터 교체
+@app.post(
+    "/api/performance-analysis/report",
+    response_model=Union[PerformanceReportResponse, List[PerformanceReportResponse]],
+)
+async def generate_performance_report_endpoint(
+    request: Union[PanelRequest, List[PanelRequest]]
+):
+    """
+    태양광 패널 성능 예측 및 PDF 리포트 생성
+    단건 또는 배열을 받아 처리:
+    - 단건(dict) -> 단일 PerformanceReportResponse
+    - 다건(list) -> PerformanceReportResponse 리스트
+    """
     start_time = time.time()
 
-    # 서비스 상태 확인
     if performance_analyzer is None or not performance_analyzer.is_loaded():
         raise ModelNotLoadedException("PerformanceAnalyzer", settings.performance_model_path)
 
-    try:
-        log_api_request("POST", "/api/performance-analysis/report", request.user_id, request.id)
+    # --- 배열 처리 ---
+    if isinstance(request, list):
+        # 동시성 제한 (선택) — 설정값 없으면 4
+        concurrency = getattr(settings, "batch_max_concurrency", 4)
+        sem = asyncio.Semaphore(concurrency)
 
-        # 성능 분석 수행
-        # 통합된 성능 분석 및 고급 리포트 생성 (기존 API 유지, 품질 개선)
-        analysis_result = await performance_analyzer.analyze_with_report(request)
+        async def run_one(p: PanelRequest) -> PerformanceReportResponse:
+            async with sem:
+                log_api_request("POST", "/api/performance-analysis/report(batch)", p.user_id, p.id)
+                result = await performance_analyzer.analyze_with_report(p)
+                return PerformanceReportResponse(
+                    user_id=p.user_id,
+                    address=result["report_path"],
+                    created_at=result["created_at"]
+                )
+
+        tasks = [run_one(p) for p in request]
+        return await asyncio.gather(*tasks)
+
+    # --- 단건 처리(기존 로직) ---
+    try:
+        p: PanelRequest = request
+        log_api_request("POST", "/api/performance-analysis/report", p.user_id, p.id)
+
+        analysis_result = await performance_analyzer.analyze_with_report(p)
 
         processing_time = time.time() - start_time
-
-        response = PerformanceReportResponse(
-            user_id=request.user_id,
-            address=analysis_result["report_path"],  # 고급 리포트 경로
-            created_at=analysis_result["created_at"]  # ReportService에서 생성된 정확한 시간
-        )
-
         log_api_request("POST", "/api/performance-analysis/report",
-                       request.user_id, request.id, processing_time)
+                       p.user_id, p.id, processing_time)
 
-        return response
-
+        return PerformanceReportResponse(
+            user_id=p.user_id,
+            address=analysis_result["report_path"],
+            created_at=analysis_result["created_at"]
+        )
     except AIServiceException:
         raise
     except Exception as e:
@@ -270,60 +303,87 @@ async def generate_performance_report_endpoint(request: PanelRequest):
         raise HTTPException(status_code=500, detail=f"성능 분석 처리 오류: {str(e)}")
 
 
-@app.post("/api/performance-analysis/analyze", response_model=PerformanceReportDetailResponse)
-async def analyze_performance_detailed(request: PanelRequest):
-    """상세한 성능 분석 (PDF 생성 없이 분석 결과만 반환)"""
+
+@app.post(
+    "/api/performance-analysis/analyze",
+    response_model=Union[PerformanceReportDetailResponse, List[PerformanceReportDetailResponse]],
+)
+async def analyze_performance_detailed(request: Union[PanelRequest, List[PanelRequest]]):
+    """
+    상세한 성능 분석 (PDF 생성 없이 분석 결과만 반환)
+    단건/배치 모두 지원:
+    - 단건 -> PerformanceReportDetailResponse
+    - 배열 -> PerformanceReportDetailResponse[]
+    """
     start_time = time.time()
 
-    # 서비스 상태 확인
     if performance_analyzer is None or not performance_analyzer.is_loaded():
         raise ModelNotLoadedException("PerformanceAnalyzer", settings.performance_model_path)
 
+    # --- 배열 처리 ---
+    if isinstance(request, list):
+        concurrency = getattr(settings, "batch_max_concurrency", 4)
+        sem = asyncio.Semaphore(concurrency)
+
+        async def run_one(p: PanelRequest) -> PerformanceReportDetailResponse:
+            async with sem:
+                log_api_request("POST", "/api/performance-analysis/analyze(batch)", p.user_id, p.id)
+                ar = await performance_analyzer.analyze_performance(p)
+
+                perf = PerformanceAnalysisResult(
+                    predicted_generation=ar["predicted_generation"],
+                    actual_generation=ar["actual_generation"],
+                    performance_ratio=ar["performance_ratio"],
+                    status=ar["status"],
+                    lifespan_months=ar.get("lifespan_months"),
+                    estimated_cost=ar.get("estimated_cost")
+                )
+
+                return PerformanceReportDetailResponse(
+                    user_id=p.user_id,
+                    panel_id=p.id,
+                    performance_analysis=perf,
+                    report_path="",
+                    created_at=datetime.now().isoformat(),
+                    processing_time_seconds=None,
+                    panel_info=ar.get("panel_info", {}),
+                    environmental_data=ar.get("environmental_data", {})
+                )
+
+        tasks = [run_one(p) for p in request]
+        return await asyncio.gather(*tasks)
+
+    # --- 단건 처리(기존 로직) ---
     try:
-        log_api_request("POST", "/api/performance-analysis/analyze", request.user_id, request.id)
-
-        # 성능 분석 수행
-        analysis_result = await performance_analyzer.analyze_performance(request)
+        p: PanelRequest = request
+        log_api_request("POST", "/api/performance-analysis/analyze", p.user_id, p.id)
+        ar = await performance_analyzer.analyze_performance(p)
         processing_time = time.time() - start_time
+        log_api_request("POST", "/api/performance-analysis/analyze",
+                       p.user_id, p.id, processing_time)
 
-        # 성능 분석 결과 구성
-        performance_analysis = PerformanceAnalysisResult(
-            predicted_generation=analysis_result["predicted_generation"],
-            actual_generation=analysis_result["actual_generation"],
-            performance_ratio=analysis_result["performance_ratio"],
-            status=analysis_result["status"],
-            lifespan_months=analysis_result.get("lifespan_months"),
-            estimated_cost=analysis_result.get("estimated_cost")
+        perf = PerformanceAnalysisResult(
+            predicted_generation=ar["predicted_generation"],
+            actual_generation=ar["actual_generation"],
+            performance_ratio=ar["performance_ratio"],
+            status=ar["status"],
+            lifespan_months=ar.get("lifespan_months"),
+            estimated_cost=ar.get("estimated_cost")
         )
 
-        response = PerformanceReportDetailResponse(
-            user_id=request.user_id,
-            panel_id=request.id,
-            performance_analysis=performance_analysis,
+        return PerformanceReportDetailResponse(
+            user_id=p.user_id,
+            panel_id=p.id,
+            performance_analysis=perf,
             report_path="",
             created_at=datetime.now().isoformat(),
             processing_time_seconds=processing_time,
-            panel_info=analysis_result.get("panel_info", {}),
-            environmental_data=analysis_result.get("environmental_data", {})
+            panel_info=ar.get("panel_info", {}),
+            environmental_data=ar.get("environmental_data", {})
         )
-
-        log_api_request("POST", "/api/performance-analysis/analyze",
-                       request.user_id, request.id, processing_time)
-
-        return response
 
     except AIServiceException:
         raise
     except Exception as e:
         logger.error(f"상세 성능 분석 중 예상치 못한 오류: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"상세 분석 처리 오류: {str(e)}")
-
-
-if __name__ == "__main__":
-    uvicorn.run(
-        "app.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.is_development,
-        log_level=settings.log_level.lower()
-    )
