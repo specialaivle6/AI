@@ -1,10 +1,11 @@
 """
-이미지 처리 유틸리티
-개선된 설정 시스템과 예외 처리 적용
+이미지 처리 유틸리티 - boto3 기반 S3 연동
 """
 
 import io
-import httpx
+# import httpx
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError
 from PIL import Image
 from pathlib import Path
 from typing import Tuple, Dict, Any
@@ -23,10 +24,10 @@ logger = get_logger(__name__)
 
 async def download_image_from_s3(s3_url: str) -> bytes:
     """
-    S3 URL에서 이미지를 다운로드합니다.
+    S3 URL에서 이미지를 다운로드합니다. (boto3 사용)
 
     Args:
-        s3_url: S3 이미지 URL
+        s3_url: S3 이미지 URL (s3://bucket/key 또는 https://... 형식)
 
     Returns:
         bytes: 이미지 바이트 데이터
@@ -38,36 +39,97 @@ async def download_image_from_s3(s3_url: str) -> bytes:
     try:
         logger.info(f"S3 이미지 다운로드 시작: {s3_url}")
 
-        async with httpx.AsyncClient(timeout=settings.s3_download_timeout) as client:
-            response = await client.get(s3_url)
-            response.raise_for_status()
+        # S3 URL 파싱
+        bucket, key = _parse_s3_url(s3_url)
+        logger.info(f"S3 파싱 결과 - Bucket: {bucket}, Key: {key}")
 
-            image_bytes = response.content
+        # boto3 클라이언트 생성
+        s3_client = boto3.client('s3')
 
-            # 이미지 크기 검증
-            if len(image_bytes) > settings.max_image_size:
-                raise ImageValidationException(
-                    f"이미지 크기가 제한을 초과합니다 ({len(image_bytes):,} > {settings.max_image_size:,} bytes)"
-                )
+        # S3에서 객체 다운로드
+        try:
+            response = s3_client.get_object(Bucket=bucket, Key=key)
+            image_bytes = response['Body'].read()
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == 'NoSuchKey':
+                raise ImageDownloadException(s3_url, f"파일이 존재하지 않습니다: {key}")
+            elif error_code == 'NoSuchBucket':
+                raise ImageDownloadException(s3_url, f"버킷이 존재하지 않습니다: {bucket}")
+            elif error_code == 'AccessDenied':
+                raise ImageDownloadException(s3_url, "S3 접근 권한이 없습니다")
+            else:
+                raise ImageDownloadException(s3_url, f"S3 오류 ({error_code}): {e}")
 
-            # 이미지 유효성 검증
-            filename = urlparse(s3_url).path.split('/')[-1]
-            if not validate_image_file(image_bytes, filename):
-                raise ImageValidationException(f"유효하지 않은 이미지 파일: {filename}")
+        # 이미지 크기 검증
+        if len(image_bytes) > settings.max_image_size:
+            raise ImageValidationException(
+                f"이미지 크기가 제한을 초과합니다 ({len(image_bytes):,} > {settings.max_image_size:,} bytes)"
+            )
 
-            logger.info(f"S3 이미지 다운로드 완료: {len(image_bytes):,} bytes")
-            return image_bytes
+        # 이미지 유효성 검증
+        filename = key.split('/')[-1]
+        if not validate_image_file(image_bytes, filename):
+            raise ImageValidationException(f"유효하지 않은 이미지 파일: {filename}")
 
-    except httpx.TimeoutException:
-        raise TimeoutException("S3 이미지 다운로드", settings.s3_download_timeout)
-    except httpx.HTTPError as e:
-        logger.error(f"HTTP 오류로 S3 이미지 다운로드 실패: {e}")
-        raise ImageDownloadException(s3_url, f"HTTP 오류: {str(e)}")
-    except (ImageValidationException, TimeoutException):
+        logger.info(f"S3 이미지 다운로드 완료: {len(image_bytes):,} bytes")
+        return image_bytes
+
+    except NoCredentialsError:
+        raise ImageDownloadException(s3_url, "AWS 자격증명이 설정되지 않았습니다")
+    except (ImageValidationException, ImageDownloadException):
         raise
     except Exception as e:
         logger.error(f"예상치 못한 S3 다운로드 오류: {e}")
         raise ImageDownloadException(s3_url, f"알 수 없는 오류: {str(e)}")
+
+
+def _parse_s3_url(s3_url: str) -> Tuple[str, str]:
+    """
+    S3 URL을 bucket과 key로 파싱
+
+    Args:
+        s3_url: S3 URL (s3://... 또는 https://... 형식)
+
+    Returns:
+        Tuple[str, str]: (bucket, key)
+    """
+    if s3_url.startswith('s3://'):
+        # s3://bucket/key 형식
+        url_without_protocol = s3_url[5:]  # 's3://' 제거
+        parts = url_without_protocol.split('/', 1)
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else ''
+
+    elif s3_url.startswith('https://'):
+        # https://bucket.s3.amazonaws.com/key 형식
+        parsed = urlparse(s3_url)
+
+        if '.s3.amazonaws.com' in parsed.netloc:
+            # bucket.s3.amazonaws.com 형식
+            bucket = parsed.netloc.split('.s3.amazonaws.com')[0]
+        elif 's3.amazonaws.com' in parsed.netloc:
+            # s3.amazonaws.com/bucket 형식
+            path_parts = parsed.path.lstrip('/').split('/', 1)
+            bucket = path_parts[0]
+            key = path_parts[1] if len(path_parts) > 1 else ''
+        else:
+            raise ValueError(f"지원하지 않는 S3 URL 형식: {s3_url}")
+
+        # key는 path에서 추출 (bucket.s3.amazonaws.com의 경우)
+        if '.s3.amazonaws.com' in parsed.netloc:
+            key = parsed.path.lstrip('/')
+
+    else:
+        raise ValueError(f"지원하지 않는 URL 형식: {s3_url}. s3:// 또는 https:// 형식을 사용하세요.")
+
+    if not bucket:
+        raise ValueError(f"버킷명을 추출할 수 없습니다: {s3_url}")
+
+    if not key:
+        raise ValueError(f"객체 키를 추출할 수 없습니다: {s3_url}")
+
+    return bucket, key
 
 
 def validate_image_file(image_data: bytes, filename: str) -> bool:
@@ -228,7 +290,7 @@ def optimize_image_for_storage(image_data: bytes, quality: int = 85) -> bytes:
             compression_ratio = len(optimized_data) / len(image_data)
 
             logger.info(f"이미지 최적화 완료: {len(image_data):,} -> {len(optimized_data):,} bytes "
-                       f"(압축률: {compression_ratio:.2%})")
+                        f"(압축률: {compression_ratio:.2%})")
 
             return optimized_data
 

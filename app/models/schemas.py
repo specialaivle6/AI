@@ -14,6 +14,7 @@ from enum import Enum
 
 class PanelStatus(str, Enum):
     """패널 상태"""
+    CRITICAL_DAMAGE = "심각한 손상"
     DAMAGE = "손상"
     CONTAMINATION = "오염"
     NORMAL = "정상"
@@ -21,9 +22,26 @@ class PanelStatus(str, Enum):
 
 class Decision(str, Enum):
     """조치 결정"""
-    SIMPLE_CLEANING = "단순 오염"
-    REPAIR = "수리"
+    URGENT_SHUTDOWN = "즉시 가동 중단 및 교체"
     REPLACEMENT = "교체"
+    REPAIR = "수리"
+    MAINTENANCE = "정기 점검"
+
+
+class Priority(str, Enum):
+    """우선순위"""
+    URGENT = "URGENT"
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+class RiskLevel(str, Enum):
+    """위험도"""
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+    MINIMAL = "MINIMAL"
 
 
 # === 백엔드와의 API 통신용 모델들 ===
@@ -45,18 +63,19 @@ class DetectionDetail(BaseModel):
 
 class BusinessAssessment(BaseModel):
     """비즈니스 평가 결과"""
-    priority: str = Field(..., description="우선순위: HIGH, MEDIUM, LOW")
-    risk_level: str = Field(..., description="위험도: HIGH, MEDIUM, LOW")
+    priority: str = Field(..., description="우선순위: URGENT, HIGH, MEDIUM, LOW")
+    risk_level: str = Field(..., description="위험도: HIGH, MEDIUM, LOW, MINIMAL")
     recommendations: List[str] = Field(default_factory=list)
     estimated_repair_cost_krw: Optional[int] = None
     estimated_performance_loss_percent: Optional[float] = None
     maintenance_urgency_days: Optional[int] = None
     business_impact: Optional[str] = None
 
-    # PanelImageReport 테이블 매핑용 추가 필드들
-    panel_status: str = Field(..., description="패널 상태: 손상, 오염, 정상")
+    # SQL 테이블과 일치하는 필드명
+    status: str = Field(..., description="패널 상태: 손상, 오염")  # SQL의 status 필드와 일치
     damage_degree: Optional[int] = Field(None, description="손상 정도 (0-100)")
     decision: str = Field(..., description="조치 결정: 단순 오염, 수리, 교체")
+    request_status: str = Field(default="요청 중", description="요청 상태: 요청 중, 요청확인, 처리중, 처리 완료")
 
 
 class DamageAnalysisResult(BaseModel):
@@ -69,7 +88,11 @@ class DamageAnalysisResult(BaseModel):
     detected_objects: int
     class_breakdown: Dict[str, float] = Field(default_factory=dict)
     status: str = "analyzed"
-
+    
+    # 면적 기반 계산 결과 필드들
+    total_image_area: Optional[int] = Field(None, description="전체 이미지 면적 (픽셀)")
+    damaged_area_pixels: Optional[int] = Field(None, description="손상된 면적 (픽셀)")
+    contaminated_area_pixels: Optional[int] = Field(None, description="오염된 면적 (픽셀)")
 
 class DamageAnalysisResponse(BaseModel):
     """손상 분석 응답 (AI 서버에서 백엔드로)"""
@@ -82,17 +105,17 @@ class DamageAnalysisResponse(BaseModel):
     # 분석 결과
     damage_analysis: DamageAnalysisResult
     business_assessment: BusinessAssessment
-    detection_details: Dict[str, Any] = Field(default_factory=dict)
+    detection_details: List[DetectionDetail] = Field(default_factory=list)  # Dict에서 List로 수정
 
     # 메타데이터
     confidence_score: float
     timestamp: datetime = Field(default_factory=datetime.now)
     processing_time_seconds: Optional[float] = None
 
-    # PanelImageReport 테이블 매핑을 위한 편의 메서드들
-    def get_panel_status(self) -> str:
-        """DB용 패널 상태 반환"""
-        return self.business_assessment.panel_status
+    # SQL 테이블 매핑을 위한 편의 메서드들 (필드명 수정)
+    def get_status(self) -> str:
+        """DB용 상태 반환 (SQL의 status 필드)"""
+        return self.business_assessment.status
 
     def get_damage_degree(self) -> Optional[int]:
         """DB용 손상 정도 반환"""
@@ -101,7 +124,22 @@ class DamageAnalysisResponse(BaseModel):
     def get_decision(self) -> str:
         """DB용 조치 결정 반환"""
         return self.business_assessment.decision
+    
+    def get_request_status(self) -> str:
+        """DB용 요청 상태 반환"""
+        return self.business_assessment.request_status
 
+    def to_panel_image_report_data(self) -> Dict[str, Any]:
+        """PanelImageReport 테이블용 데이터 반환"""
+        return {
+            "panel_id": self.panel_id,
+            "user_id": self.user_id,
+            "status": self.get_status(),
+            "damage_degree": self.get_damage_degree(),
+            "decision": self.get_decision(),
+            "request_status": self.get_request_status(),
+            "created_at": self.timestamp.date()
+        }
 
 class HealthCheckResponse(BaseModel):
     """헬스체크 응답"""

@@ -175,93 +175,240 @@ class DamageAnalyzer:
             raise Exception(f"결과 분석 실패: {str(e)}")
 
     def _calculate_damage_areas(self, results, total_area: int) -> Dict[str, float]:
-        """손상 영역 계산"""
+        """손상 영역 계산 - 패널 영역 기준으로 개선된 계산"""
         damage_areas = {
             "critical": 0.0,
             "contamination": 0.0,
             "total": 0.0
         }
 
-        # 실제 계산 로직은 기존과 동일하되, 설정 상수 사용
-        # self.critical_classes, self.contamination_classes 사용
+        if not results or len(results) == 0:
+            return damage_areas
+
+        # 첫 번째 결과 사용 (보통 단일 이미지 처리)
+        result = results[0]
+
+        # 감지된 객체가 없으면 빈 결과 반환
+        if result.boxes is None or len(result.boxes) == 0:
+            return damage_areas
+
+        # 세그멘테이션 마스크가 없으면 바운딩 박스 기반 계산
+        if result.masks is None or len(result.masks) == 0:
+            return self._calculate_damage_from_boxes(result, total_area)
+
+        # 마스크 기반 정확한 계산 (Previous 버전 방식 적용)
+        return self._calculate_damage_from_masks(result)
+
+    def _calculate_damage_from_boxes(self, result, total_area: int) -> Dict[str, float]:
+        """바운딩 박스 기반 손상 영역 계산 (기존 방식)"""
+        damage_areas = {
+            "critical": 0.0,
+            "contamination": 0.0,
+            "total": 0.0
+        }
+
+        boxes = result.boxes.xyxy.cpu().numpy()
+        classes = result.boxes.cls.cpu().numpy().astype(int)
+        confidences = result.boxes.conf.cpu().numpy()
+
+        critical_area = 0.0
+        contamination_area = 0.0
+        total_damage_area = 0.0
+
+        for i, (box, cls_id, conf) in enumerate(zip(boxes, classes, confidences)):
+            if conf < settings.confidence_threshold:
+                continue
+
+            class_name = self.class_names.get(cls_id, f"class_{cls_id}")
+
+            # 바운딩 박스 영역 계산
+            x1, y1, x2, y2 = box
+            box_area = (x2 - x1) * (y2 - y1)
+
+            # 클래스별 손상 영역 분류
+            if class_name in self.critical_classes:
+                critical_area += box_area
+                total_damage_area += box_area
+            elif class_name in self.contamination_classes:
+                contamination_area += box_area
+                total_damage_area += box_area
+            else:
+                total_damage_area += box_area
+
+        # 전체 이미지 대비 비율로 변환 (백분율)
+        damage_areas["critical"] = (critical_area / total_area) * 100.0 if total_area > 0 else 0.0
+        damage_areas["contamination"] = (contamination_area / total_area) * 100.0 if total_area > 0 else 0.0
+        damage_areas["total"] = (total_damage_area / total_area) * 100.0 if total_area > 0 else 0.0
+
+        return damage_areas
+
+    def _calculate_damage_from_masks(self, result) -> Dict[str, float]:
+        """마스크 기반 정확한 손상 영역 계산 (Previous 버전 방식 적용)"""
+        damage_areas = {
+            "critical": 0.0,
+            "contamination": 0.0,
+            "total": 0.0
+        }
+
+        # 영역별 면적 계산
+        total_panel_area = 0
+        defective_area = 0
+        healthy_area = 0
+        critical_damage_area = 0
+        contamination_area = 0
+
+        # 각 검출된 객체 분석
+        for i, mask in enumerate(result.masks.data):
+            mask_np = mask.cpu().numpy()
+            mask_area = np.sum(mask_np)
+
+            class_id = int(result.boxes.cls[i])
+            class_name = self.class_names.get(class_id, f"class_{class_id}")
+            confidence = float(result.boxes.conf[i])
+
+            # 신뢰도 임계값 확인
+            if confidence < settings.confidence_threshold:
+                continue
+
+            # 카테고리별 면적 분류 (Previous 버전 로직)
+            if class_name == 'Defective':
+                defective_area += mask_area
+                total_panel_area += mask_area
+            elif class_name == 'Non-Defective':
+                healthy_area += mask_area
+                total_panel_area += mask_area
+            elif class_name in self.critical_classes:
+                critical_damage_area += mask_area
+                defective_area += mask_area
+                total_panel_area += mask_area
+            elif class_name in self.contamination_classes:
+                contamination_area += mask_area
+                defective_area += mask_area
+                total_panel_area += mask_area
+
+        # 패널 영역 기준으로 백분율 계산 (Previous 버전 방식)
+        if total_panel_area > 0:
+            damage_areas["critical"] = (critical_damage_area / total_panel_area) * 100.0
+            damage_areas["contamination"] = (contamination_area / total_panel_area) * 100.0
+            damage_areas["total"] = (defective_area / total_panel_area) * 100.0
+        else:
+            # 패널이 검출되지 않은 경우는 0%로 처리
+            damage_areas = {"critical": 0.0, "contamination": 0.0, "total": 0.0}
+
+        logger.info(f"손상 영역 계산 완료 (패널 기준) - Critical: {damage_areas['critical']:.2f}%, "
+                    f"Contamination: {damage_areas['contamination']:.2f}%, "
+                    f"Total: {damage_areas['total']:.2f}%")
 
         return damage_areas
 
     def _create_business_assessment(self, damage_areas: Dict[str, float]) -> Dict[str, Any]:
-        """비즈니스 평가 생성 (설정 기반)"""
+        """비즈니스 평가 생성 (업데이트된 설정 상수 사용)"""
         total_damage = damage_areas["total"]
         critical_damage = damage_areas["critical"]
+        contamination = damage_areas["contamination"]
 
-        # 설정에서 임계값 가져오기
-        high_threshold = settings.DamageConstants.PRIORITY_HIGH_THRESHOLD
-        medium_threshold = settings.DamageConstants.PRIORITY_MEDIUM_THRESHOLD
-
-        # 우선순위 결정
-        if critical_damage > high_threshold:
-            priority = "HIGH"
+        # 업데이트된 설정 상수를 사용한 우선순위 분류
+        if critical_damage > settings.DamageConstants.URGENT_CRITICAL_THRESHOLD:
+            priority = "URGENT"
             risk_level = "HIGH"
-            decision = "교체"
-        elif total_damage > medium_threshold:
-            priority = "MEDIUM"
+            decision = "즉시 가동 중단 및 교체"
+        elif (critical_damage > settings.DamageConstants.HIGH_CRITICAL_THRESHOLD or
+              total_damage > settings.DamageConstants.HIGH_TOTAL_THRESHOLD):
+            priority = "HIGH"
             risk_level = "MEDIUM"
+            decision = "교체"
+        elif total_damage > settings.DamageConstants.MEDIUM_TOTAL_THRESHOLD:
+            priority = "MEDIUM"
+            risk_level = "LOW"
             decision = "수리"
         else:
             priority = "LOW"
-            risk_level = "LOW"
-            decision = "단순 오염"
+            risk_level = "MINIMAL"
+            decision = "정기 점검"
 
-        # 비용 추정 (설정 기반)
-        repair_cost = int(total_damage * settings.DamageConstants.REPAIR_COST_PER_PERCENT)
-        if decision == "교체":
-            repair_cost = settings.DamageConstants.REPLACEMENT_COST_BASE
+        # 업데이트된 설정을 사용한 현실적인 비용 추정
+        estimated_cost = 0
+        if critical_damage > 0:
+            estimated_cost += critical_damage * settings.DamageConstants.CRITICAL_DAMAGE_COST_PER_PERCENT
+        if contamination > 10:
+            estimated_cost += contamination * settings.DamageConstants.CONTAMINATION_COST_PER_PERCENT
+
+        # 기본 교체 비용 적용
+        if decision == "즉시 가동 중단 및 교체" or decision == "교체":
+            estimated_cost = max(estimated_cost, settings.DamageConstants.REPLACEMENT_COST_BASE)
+
+        # 설정 기반 성능 손실 계산
+        performance_loss = min(total_damage * settings.DamageConstants.PERFORMANCE_LOSS_RATIO, 95.0)
 
         return {
             "priority": priority,
             "risk_level": risk_level,
-            "panel_status": "손상" if total_damage > 5.0 else "오염" if total_damage > 1.0 else "정상",
+            "status": "심각한 손상" if critical_damage > 10 else "손상" if total_damage > 5.0 else "오염" if total_damage > 1.0 else "정상",
+            "panel_status": "심각한 손상" if critical_damage > 10 else "손상" if total_damage > 5.0 else "오염" if total_damage > 1.0 else "정상",
             "damage_degree": int(total_damage),
             "decision": decision,
-            "recommendations": self._generate_recommendations(damage_areas),
-            "estimated_repair_cost_krw": repair_cost,
-            "estimated_performance_loss_percent": total_damage * 1.5,  # 손상 1%당 성능 1.5% 저하 가정
-            "maintenance_urgency_days": self._calculate_urgency_days(critical_damage),
-            "business_impact": self._assess_business_impact(total_damage)
+            "recommendations": self._generate_enhanced_recommendations(damage_areas),
+            "estimated_repair_cost_krw": int(estimated_cost),
+            "estimated_performance_loss_percent": round(performance_loss, 1),
+            "maintenance_urgency_days": self._calculate_enhanced_urgency_days(critical_damage, total_damage),
+            "business_impact": self._assess_enhanced_business_impact(total_damage, critical_damage)
         }
 
-    def _generate_recommendations(self, damage_areas: Dict[str, float]) -> List[str]:
-        """권장사항 생성"""
+    def _generate_enhanced_recommendations(self, damage_areas: Dict[str, float]) -> List[str]:
+        """향상된 권장사항 생성 (Previous 버전 로직 적용)"""
         recommendations = []
+        critical_damage = damage_areas["critical"]
+        total_damage = damage_areas["total"]
+        contamination = damage_areas["contamination"]
 
-        if damage_areas["critical"] > 5.0:
+        # Critical 손상에 대한 권장사항
+        if critical_damage > 10.0:
+            recommendations.append("즉시 전문가 점검 필요")
+            recommendations.append("해당 패널 가동 중단 권장")
+            recommendations.append("안전을 위해 패널 전원 차단 권장")
+        elif critical_damage > 5.0:
             recommendations.append("즉시 전문가 점검 필요")
             recommendations.append("안전을 위해 패널 전원 차단 권장")
-        elif damage_areas["total"] > 10.0:
+
+        # 전체 손상에 대한 권장사항
+        if total_damage > 30.0:
+            recommendations.append("패널 교체 검토 필요")
+        elif total_damage > 15.0:
             recommendations.append("1주일 내 수리 예약 권장")
-        elif damage_areas["contamination"] > 15.0:
-            recommendations.append("정기 청소 서비스 신청 권장")
 
-        if not recommendations:
-            recommendations.append("현재 상태 양호, 정기 점검 지속")
+        # 오염에 대한 권장사항
+        if contamination > 10.0:
+            recommendations.append("패널 청소 필요")
 
-        return recommendations
+        # 정상 상태
+        if total_damage < 5.0:
+            recommendations.append("정상 상태 - 정기 점검 유지")
 
-    def _calculate_urgency_days(self, critical_damage: float) -> int:
-        """긴급도 일수 계산"""
+        return recommendations if recommendations else ["현재 상태 양호, 정기 점검 지속"]
+
+    def _calculate_enhanced_urgency_days(self, critical_damage: float, total_damage: float) -> int:
+        """향상된 유지보수 긴급도 계산 (Previous 버전 로직)"""
         if critical_damage > 10.0:
             return 1  # 즉시
         elif critical_damage > 5.0:
-            return 7  # 1주일
+            return 7  # 1주일 이내
+        elif total_damage > 30.0:
+            return 30  # 1달 이내
+        elif total_damage > 15.0:
+            return 90  # 3달 이내
         else:
-            return 30  # 1개월
+            return 365  # 1년 이내
 
-    def _assess_business_impact(self, total_damage: float) -> str:
-        """비즈니스 영향도 평가"""
-        if total_damage > 15.0:
-            return "높음 - 수익성에 심각한 영향"
-        elif total_damage > 8.0:
-            return "중간 - 발전 효율 저하"
+    def _assess_enhanced_business_impact(self, total_damage: float, critical_damage: float) -> str:
+        """향상된 비즈니스 영향도 평가 (Previous 버전 로직)"""
+        if critical_damage > 15.0:
+            return "심각한 수익 손실 예상 - 즉시 조치 필요"
+        elif total_damage > 40.0:
+            return "상당한 성능 저하 - 신속한 대응 필요"
+        elif total_damage > 20.0:
+            return "경미한 성능 영향 - 계획적 유지보수 권장"
         else:
-            return "낮음 - 경미한 성능 영향"
+            return "정상 운영 중 - 예방적 유지보수 유지"
 
     def _create_damage_analysis(self, damage_areas: Dict[str, float], results) -> Dict[str, Any]:
         """손상 분석 결과 생성"""
@@ -273,61 +420,130 @@ class DamageAnalyzer:
         # 클래스별 비율 계산
         class_percentages = self._calculate_class_percentages(results, damage_areas["total"])
 
+        # 실제 감지된 객체 수 계산
+        detected_objects_count = 0
+        if results and len(results) > 0:
+            result = results[0]
+            if result.boxes is not None and len(result.boxes) > 0:
+                # 신뢰도 임계값 이상인 객체만 카운트
+                confidences = result.boxes.conf.cpu().numpy()
+                detected_objects_count = int(np.sum(confidences >= settings.confidence_threshold))
+
         return {
             "overall_damage_percentage": round(overall_damage_percentage, 2),
             "critical_damage_percentage": round(critical_damage_percentage, 2),
             "contamination_percentage": round(contamination_percentage, 2),
             "healthy_percentage": round(healthy_percentage, 2),
             "avg_confidence": round(self._calculate_avg_confidence(results), 3),
-            "detected_objects": len(results),
+            "detected_objects": detected_objects_count,
             "class_breakdown": class_percentages,
             "status": "analyzed"
         }
 
-    def _calculate_class_percentages(self, results, total_damage: float) -> Dict[str, float]:
+    def _calculate_class_percentages(self, results, total_damage_area: float) -> Dict[str, float]:
         """클래스별 비율 계산"""
         class_areas = {}
 
-        for result in results:
-            class_id = int(result.boxes.cls)
-            class_name = self.class_names[class_id] if self.class_names else f"class_{class_id}"
-            mask_area = np.sum(result.masks.data.cpu().numpy())
+        if not results or len(results) == 0:
+            return {}
+
+        result = results[0]
+
+        if result.boxes is None or len(result.boxes) == 0:
+            return {}
+
+        boxes = result.boxes.xyxy.cpu().numpy()
+        classes = result.boxes.cls.cpu().numpy().astype(int)
+        confidences = result.boxes.conf.cpu().numpy()
+
+        for i, (box, cls_id, conf) in enumerate(zip(boxes, classes, confidences)):
+            if conf < settings.confidence_threshold:
+                continue
+
+            class_name = self.class_names.get(cls_id, f"class_{cls_id}")
+
+            # 바운딩 박스 영역 계산
+            x1, y1, x2, y2 = box
+            box_area = (x2 - x1) * (y2 - y1)
+
+            # 세그멘테이션 마스크가 있는 경우 더 정확한 영역 계산
+            if hasattr(result, 'masks') and result.masks is not None and len(result.masks) > i:
+                try:
+                    mask = result.masks[i].data.cpu().numpy()
+                    if mask.size > 0:
+                        mask_area = np.sum(mask > 0.5)
+                        box_area = mask_area
+                except Exception:
+                    pass  # 바운딩 박스 영역 사용
 
             if class_name not in class_areas:
                 class_areas[class_name] = 0
-            class_areas[class_name] += mask_area
+            class_areas[class_name] += box_area
 
-        # 백분율로 변환
-        class_percentages = {k: (v / total_damage) * 100 for k, v in class_areas.items()}
+        # 전체 손상 영역 대비 백분율로 변환
+        if total_damage_area > 0:
+            class_percentages = {k: (v / total_damage_area) * 100 for k, v in class_areas.items()}
+        else:
+            class_percentages = {k: 0.0 for k in class_areas.keys()}
 
         return {k: round(v, 2) for k, v in class_percentages.items()}
 
     def _calculate_avg_confidence(self, results) -> float:
         """평균 신뢰도 계산"""
-        confidences = [float(result.boxes.conf) for result in results]
-        return np.mean(confidences) if confidences else 0.0
+        if not results or len(results) == 0:
+            return 0.0
 
-    def _create_detection_details(self, results) -> Dict[str, Any]:
+        result = results[0]
+
+        if result.boxes is None or len(result.boxes) == 0:
+            return 0.0
+
+        confidences = result.boxes.conf.cpu().numpy()
+        return float(np.mean(confidences)) if len(confidences) > 0 else 0.0
+
+    def _create_detection_details(self, results) -> List[Dict[str, Any]]:
         """검출 상세 정보 생성"""
         detections = []
 
-        for result in results:
-            class_id = int(result.boxes.cls)
-            class_name = self.class_names[class_id] if self.class_names else f"class_{class_id}"
-            confidence = float(result.boxes.conf)
-            bbox = result.boxes.xyxy.cpu().numpy().tolist()
+        if not results or len(results) == 0:
+            return []
+
+        result = results[0]
+
+        if result.boxes is None or len(result.boxes) == 0:
+            return []
+
+        boxes = result.boxes.xyxy.cpu().numpy()
+        classes = result.boxes.cls.cpu().numpy().astype(int)
+        confidences = result.boxes.conf.cpu().numpy()
+
+        for i, (box, cls_id, conf) in enumerate(zip(boxes, classes, confidences)):
+            if conf < settings.confidence_threshold:
+                continue
+
+            class_name = self.class_names.get(cls_id, f"class_{cls_id}")
+            bbox = [int(x) for x in box]
+
+            # 영역 계산
+            area_pixels = int((box[2] - box[0]) * (box[3] - box[1]))
+
+            # 세그멘테이션 마스크가 있는 경우 더 정확한 영역 계산
+            if hasattr(result, 'masks') and result.masks is not None and len(result.masks) > i:
+                try:
+                    mask = result.masks[i].data.cpu().numpy()
+                    if mask.size > 0:
+                        area_pixels = int(np.sum(mask > 0.5))
+                except Exception:
+                    pass  # 바운딩 박스 영역 사용
 
             detections.append({
                 "class_name": class_name,
-                "confidence": round(confidence, 3),
-                "bbox": [float(x) for x in bbox],
-                "area_pixels": int(np.sum(result.masks.data.cpu().numpy()))
+                "confidence": round(float(conf), 3),
+                "bbox": bbox,
+                "area_pixels": area_pixels
             })
 
-        return {
-            "total_detections": len(detections),
-            "detections": detections
-        }
+        return detections
 
     def generate_batch_summary(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """일괄 분석 결과 요약"""
@@ -380,3 +596,15 @@ class DamageAnalyzer:
             return "정기 청소 및 예방적 유지보수 강화"
         else:
             return "현재 유지보수 수준 유지"
+
+    def _generate_recommendations(self, damage_areas: Dict[str, float]) -> List[str]:
+        """권장사항 생성 (기존 메소드를 enhanced 버전으로 대체됨)"""
+        return self._generate_enhanced_recommendations(damage_areas)
+
+    def _calculate_urgency_days(self, critical_damage: float) -> int:
+        """긴급도 일수 계산 (기존 메소드를 enhanced 버전으로 대체됨)"""
+        return self._calculate_enhanced_urgency_days(critical_damage, 0.0)
+
+    def _assess_business_impact(self, total_damage: float) -> str:
+        """비즈니스 영향도 평가 (기존 메소드를 enhanced 버전으로 대체됨)"""
+        return self._assess_enhanced_business_impact(total_damage, 0.0)
