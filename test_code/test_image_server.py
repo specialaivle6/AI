@@ -11,7 +11,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 # 테스트 이미지 경로
-TEST_IMAGES_DIR = Path("tests/test_images")
+TEST_IMAGES_DIR = Path("test_code/test_images")
 
 
 @asynccontextmanager

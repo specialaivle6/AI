@@ -33,7 +33,7 @@ def generate_test_images():
     """테스트 이미지 생성"""
     print("[IMAGE] 테스트 이미지 생성 중...")
     try:
-        from tests.test_image_generator import TestImageGenerator
+        from test_code.test_image_generator import TestImageGenerator
         generator = TestImageGenerator()
         dataset = generator.create_test_dataset()
         print(f"[SUCCESS] 테스트 이미지 생성 완료: {len(dataset['valid'])}개 유효, {len(dataset['invalid'])}개 무효")
@@ -45,25 +45,25 @@ def generate_test_images():
 
 def run_unit_tests():
     """단위 테스트 실행"""
-    command = ["python", "-m", "pytest", "tests/unit/", "-v"]
+    command = ["python", "-m", "pytest", "test_code/unit/", "-v"]
     return run_command(command, "단위 테스트 실행")
 
 
 def run_integration_tests():
     """통합 테스트 실행"""
-    command = ["python", "-m", "pytest", "tests/integration/", "-v"]
+    command = ["python", "-m", "pytest", "test_code/integration/", "-v"]
     return run_command(command, "통합 테스트 실행")
 
 
 def run_all_tests():
     """모든 테스트 실행"""
-    command = ["python", "-m", "pytest", "tests/", "-v"]
+    command = ["python", "-m", "pytest", "test_code/", "-v"]
     return run_command(command, "전체 테스트 실행")
 
 
 def run_fast_tests():
     """빠른 테스트만 실행 (느린 테스트 제외)"""
-    command = ["python", "-m", "pytest", "tests/", "-v", "-m", "not slow"]
+    command = ["python", "-m", "pytest", "test_code/", "-v", "-m", "not slow"]
     return run_command(command, "빠른 테스트 실행 (느린 테스트 제외)")
 
 
@@ -71,7 +71,7 @@ def run_coverage_tests():
     """코드 커버리지와 함께 테스트 실행"""
     commands = [
         ["python", "-m", "pip", "install", "pytest-cov"],
-        ["python", "-m", "pytest", "tests/", "--cov=app", "--cov-report=html", "--cov-report=term"]
+        ["python", "-m", "pytest", "test_code/", "--cov=app", "--cov-report=html", "--cov-report=term"]
     ]
 
     success = True
@@ -91,10 +91,10 @@ def check_test_environment():
 
     # 필요한 디렉토리 확인
     required_dirs = [
-        "tests/",
-        "tests/unit/",
-        "tests/integration/",
-        "tests/test_images/"
+        "test_code/",
+        "test_code/unit/",
+        "test_code/integration/",
+        "test_code/test_images/"
     ]
 
     missing_dirs = []
@@ -107,7 +107,7 @@ def check_test_environment():
         return False
 
     # 테스트 이미지 확인
-    test_images_dir = Path("tests/test_images/valid")
+    test_images_dir = Path("test_code/test_images/valid")
     if not test_images_dir.exists() or len(list(test_images_dir.glob("*.jpg"))) < 5:
         print("[WARN] 테스트 이미지가 부족합니다. 생성하시겠습니까? (y/n)")
         if input().lower() == 'y':

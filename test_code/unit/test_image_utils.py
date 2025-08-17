@@ -15,7 +15,7 @@ from app.utils.image_utils import (
     optimize_image_for_storage, create_thumbnail, extract_image_metadata
 )
 from app.core.exceptions import ImageDownloadException, ImageValidationException
-from tests.test_image_generator import TestImageGenerator
+from test_code.test_image_generator import TestImageGenerator
 
 
 class TestImageValidation:

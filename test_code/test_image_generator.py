@@ -14,7 +14,7 @@ import random
 class TestImageGenerator:
     """테스트용 이미지 생성기"""
 
-    def __init__(self, base_path: str = "tests/test_images"):
+    def __init__(self, base_path: str = "test_code/test_images"):
         self.base_path = Path(base_path)
         self.valid_path = self.base_path / "valid"
         self.invalid_path = self.base_path / "invalid"

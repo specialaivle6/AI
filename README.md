@@ -126,10 +126,10 @@ public DamageAnalysisResponse analyzeDamage(Long panelId, String userId, String 
 
 ```bash
 # 단위 테스트
-pytest tests/ -v
+pytest test_code/ -v
 
 # 커버리지 (현재 87%)
-pytest tests/ --cov=app --cov-report=html
+pytest test_code/ --cov=app --cov-report=html
 ```
 
 ## 🐳 Docker 배포

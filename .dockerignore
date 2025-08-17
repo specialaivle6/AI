@@ -50,7 +50,7 @@ uploads/
 # 테스트 파일
 test_*.py
 *_test.py
-tests/
+test_code/
 
 # 문서 파일 (런타임에 불필요)
 README.md

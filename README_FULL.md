@@ -310,13 +310,13 @@ docker run -p 8000:8000 -e DEVICE=cpu solar-panel-ai:latest
 ### 단위 테스트
 ```bash
 # pytest 실행
-pytest tests/ -v
+pytest test_code/ -v
 
 # 커버리지 포함
-pytest tests/ --cov=app --cov-report=html
+pytest test_code/ --cov=app --cov-report=html
 
 # 통합 테스트
-pytest tests/integration/ -v
+pytest test_code/integration/ -v
 ```
 
 ### API 테스트
@@ -325,10 +325,10 @@ pytest tests/integration/ -v
 python test_api.py
 
 # 성능 테스트
-python tests/test_performance.py
+python test_code/test_performance.py
 
 # 부하 테스트 (locust 필요)
-locust -f tests/load_test.py --host=http://localhost:8000
+locust -f test_code/load_test.py --host=http://localhost:8000
 ```
 
 ### 테스트 커버리지
@@ -371,7 +371,7 @@ AI/
 │   ├── panel_prices.csv       # 패널 가격 정보
 │   ├── panel_specs.xlsx       # 패널 사양 데이터
 │   └── regions.csv            # 지역별 설정
-├── 📁 tests/                  # 테스트 코드
+├── 📁 test_code/                  # 테스트 코드
 │   ├── conftest.py            # pytest 설정
 │   ├── 📁 unit/               # 단위 테스트
 │   ├── 📁 integration/        # 통합 테스트
@@ -536,20 +536,20 @@ POST /api/admin/log-level
 ### 코드 스타일
 ```bash
 # Black 포매터
-black app/ tests/
+black app/ test_code/
 
 # isort 임포트 정렬
-isort app/ tests/
+isort app/ test_code/
 
 # flake8 린터
-flake8 app/ tests/
+flake8 app/ test_code/
 ```
 
 ### 새로운 기능 추가
 1. **모델 추가**: `app/services/` 에 새 분석기 클래스 생성
 2. **API 엔드포인트**: `app/api/` 에 라우터 추가
 3. **스키마 정의**: `app/models/schemas.py` 에 요청/응답 모델 추가
-4. **테스트 작성**: `tests/` 에 해당 테스트 코드 작성
+4. **테스트 작성**: `test_code/` 에 해당 테스트 코드 작성
 
 ### 디버깅
 ```bash

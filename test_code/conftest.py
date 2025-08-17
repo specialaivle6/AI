@@ -32,12 +32,12 @@ def setup_test_environment():
     print("\n[SETUP] 테스트 환경 설정 중...")
 
     # 테스트 이미지 생성
-    from tests.test_image_generator import TestImageGenerator
+    from test_code.test_image_generator import TestImageGenerator
 
     generator = TestImageGenerator()
 
     # 이미지가 이미 존재하는지 확인
-    valid_dir = Path("tests/test_images/valid")
+    valid_dir = Path("test_code/test_images/valid")
     if not valid_dir.exists() or len(list(valid_dir.glob("*.jpg"))) < 5:
         print("[IMAGE] 테스트 이미지 생성 중...")
         dataset = generator.create_test_dataset()

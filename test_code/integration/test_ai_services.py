@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models.schemas import DamageAnalysisRequest, PanelRequest
-from tests.test_image_generator import TestImageGenerator, create_mock_s3_url
-from tests.test_image_server import start_test_server
+from test_code.test_image_generator import TestImageGenerator, create_mock_s3_url
+from test_code.test_image_server import start_test_server
 
 
 class TestDamageAnalysisIntegration:
@@ -40,7 +40,7 @@ class TestDamageAnalysisIntegration:
             filename = url.split("/")[-1]
 
             # 로컬 테스트 이미지 경로에서 찾기
-            test_images_dir = Path("tests/test_images")
+            test_images_dir = Path("test_code/test_images")
 
             valid_path = test_images_dir / "valid" / filename
             if valid_path.exists():

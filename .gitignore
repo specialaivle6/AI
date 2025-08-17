@@ -85,12 +85,36 @@ uploads/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Sample/test images
+# Sample/test images - 포괄적으로 제외
 test_*.jpg
+test_*.jpeg
 test_*.png
+test_*.bmp
+test_*.tiff
+test_*.webp
+test_*.gif
 sample_*.jpg
+sample_*.jpeg
 sample_*.png
+sample_*.bmp
+sample_*.tiff
+sample_*.webp
+sample_*.gif
+
+# Test code 이미지 파일들 - 모든 하위 폴더 포함
+test_code/**/*.jpg
+test_code/**/*.jpeg
+test_code/**/*.png
+test_code/**/*.bmp
+test_code/**/*.tiff
+test_code/**/*.webp
+test_code/**/*.gif
 test_code/test_images/
+tests/test_images/
+
+# Generated reports with Korean filenames
+reports/이의형*.pdf
+reports/*이의형*.pdf
 
 # Backup files
 *.bak
