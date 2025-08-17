@@ -91,6 +91,7 @@ test_*.jpg
 test_*.png
 sample_*.jpg
 sample_*.png
+test_code/test_images/
 
 # Backup files
 *.bak
