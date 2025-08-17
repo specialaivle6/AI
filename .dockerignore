@@ -54,6 +54,7 @@ tests/
 
 # 문서 파일 (런타임에 불필요)
 README.md
+README_FULL.md
 guide.md
 API_SPECIFICATION.md
 *.md
