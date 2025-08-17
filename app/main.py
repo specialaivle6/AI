@@ -18,7 +18,7 @@ from app.core.logging_config import setup_logging, get_logger, log_api_request, 
 from app.services.damage_analyzer import DamageAnalyzer
 
 from app.services.performance_analyzer import PerformanceAnalyzer
-from app.models.schemas import (
+from app.schemas.schemas import (
     DamageAnalysisRequest,
     DamageAnalysisResponse,
     HealthCheckResponse,

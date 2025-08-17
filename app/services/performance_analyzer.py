@@ -22,8 +22,8 @@ from app.core.exceptions import (
 )
 from app.core.logging_config import get_logger, log_analysis_result, log_performance
 
-from app.models.schemas import PanelRequest, PerformanceAnalysisResult, PerformanceReportResponse
-from app.models.model_features import MODEL_FEATURES
+from app.schemas.schemas import PanelRequest, PerformanceAnalysisResult, PerformanceReportResponse
+from app.schemas.model_features import MODEL_FEATURES
 from app.services.report_service import ReportService
 from app.utils.performance_utils import find_nearest_region  # 고급 지역 처리 함수 추가
 

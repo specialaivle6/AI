@@ -39,7 +39,7 @@ from .schemas import (
     ErrorResponse
 )
 
-from .model_features import MODEL_FEATURES
+from app.schemas.model_features import MODEL_FEATURES
 
 __all__ = [
     # Enum 타입

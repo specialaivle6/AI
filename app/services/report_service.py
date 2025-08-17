@@ -8,8 +8,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 import logging
 
-from app.models.schemas import PanelRequest
-from app.models.model_features import MODEL_FEATURES
+from app.schemas.schemas import PanelRequest
+from app.schemas.model_features import MODEL_FEATURES
 from app.utils.performance_utils import (
     find_nearest_region, get_model_specs, canonicalize_model_name,
     estimate_cost, CostEstimate

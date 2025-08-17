@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch, AsyncMock
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.schemas import DamageAnalysisRequest, PanelRequest
+from app.schemas.schemas import DamageAnalysisRequest, PanelRequest
 from test_code.test_image_generator import TestImageGenerator, create_mock_s3_url
 from test_code.test_image_server import start_test_server
 
