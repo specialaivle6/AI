@@ -220,3 +220,17 @@ class PerformanceReportDetailResponse(BaseModel):
     panel_info: Dict[str, Any] = Field(default_factory=dict)
     environmental_data: Dict[str, Any] = Field(default_factory=dict)
 
+
+class ReportItemResult(BaseModel):
+    id: int
+    s3Key: str
+    s3Url: str
+    presignedUrl: str
+    expiresAt: str
+    contentType: str
+    contentLength: int
+    eTag: str
+
+
+class ReportGenerateResponse(BaseModel):
+    results: List[ReportItemResult]

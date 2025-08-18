@@ -1,12 +1,14 @@
-from fastapi import FastAPI, HTTPException, Request
+import boto3, os, time
+from botocore.exceptions import BotoCoreError, ClientError
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
-import time
 from typing import Optional, List, Union
 import asyncio
 from datetime import datetime
+from dotenv import load_dotenv, find_dotenv
 
 # 개선된 임포트
 from app.core.config import settings, validate_settings
@@ -26,7 +28,7 @@ from app.schemas.schemas import (
     PanelRequest,
     PerformanceReportResponse,
     PerformanceReportDetailResponse,
-    PerformanceAnalysisResult
+    PerformanceAnalysisResult, ReportItemResult
 )
 from app.utils.image_utils import download_image_from_s3, get_image_info
 from app.utils.report_generator import generate_performance_report
@@ -39,6 +41,8 @@ logger = get_logger(__name__)
 # 전역 변수로 서비스들 관리
 damage_analyzer: Optional[DamageAnalyzer] = None
 performance_analyzer: Optional[PerformanceAnalyzer] = None
+
+load_dotenv(find_dotenv(), override=False)
 
 
 @asynccontextmanager
@@ -243,64 +247,61 @@ from app.schemas.schemas import (
 )
 
 # 기존 함수 시그니처/데코레이터 교체
-@app.post(
-    "/api/performance-analysis/report",
-    response_model=Union[PerformanceReportResponse, List[PerformanceReportResponse]],
-)
+@app.post("/api/performance-analysis/report",
+          response_model=List[PerformanceReportResponse])
 async def generate_performance_report_endpoint(
-    request: Union[PanelRequest, List[PanelRequest]]
+    request: List[PanelRequest],
+    address_mode: str = Query("key", pattern="^(key|url|presigned)$")  # ✅ 선택지
 ):
-    """
-    태양광 패널 성능 예측 및 PDF 리포트 생성
-    단건 또는 배열을 받아 처리:
-    - 단건(dict) -> 단일 PerformanceReportResponse
-    - 다건(list) -> PerformanceReportResponse 리스트
-    """
-    start_time = time.time()
-
     if performance_analyzer is None or not performance_analyzer.is_loaded():
         raise ModelNotLoadedException("PerformanceAnalyzer", settings.performance_model_path)
 
-    # --- 배열 처리 ---
-    if isinstance(request, list):
-        # 동시성 제한 (선택) — 설정값 없으면 4
-        concurrency = getattr(settings, "batch_max_concurrency", 4)
-        sem = asyncio.Semaphore(concurrency)
+    concurrency = getattr(settings, "batch_max_concurrency", 4)
+    sem = asyncio.Semaphore(concurrency)
 
-        async def run_one(p: PanelRequest) -> PerformanceReportResponse:
-            async with sem:
-                log_api_request("POST", "/api/performance-analysis/report(batch)", p.user_id, p.id)
-                result = await performance_analyzer.analyze_with_report(p)
-                return PerformanceReportResponse(
-                    user_id=p.user_id,
-                    address=result["report_path"],
-                    created_at=result["created_at"]
-                )
+    async def run_one(p: PanelRequest) -> PerformanceReportResponse:
+        async with sem:
+            log_api_request("POST", "/api/performance-analysis/report(batch)", p.user_id, p.id)
 
-        tasks = [run_one(p) for p in request]
-        return await asyncio.gather(*tasks)
+            # 1) 분석
+            analysis = await performance_analyzer.analyze_performance(p)
 
-    # --- 단건 처리(기존 로직) ---
-    try:
-        p: PanelRequest = request
-        log_api_request("POST", "/api/performance-analysis/report", p.user_id, p.id)
+            # 2) PDF 생성
+            report_path = generate_performance_report(
+                predicted=analysis["predicted_generation"],
+                actual=analysis["actual_generation"],
+                status=analysis["status"],
+                user_id=p.user_id,
+                lifespan=analysis.get("lifespan_months", 0) / 12 if analysis.get("lifespan_months") else None,
+                cost=analysis.get("estimated_cost"),
+            )
 
-        analysis_result = await performance_analyzer.analyze_with_report(p)
+            # 3) S3 업로드 (키는 {user_id}/{panel_id}_{ts}.pdf 규칙 사용)
+            ts = int(time.time())                                 # 이걸 report_id로 사용
+            key = f"reports/{p.user_id}/{p.id}_{ts}.pdf"
+            item = upload_pdf_to_s3(report_path, key)
 
-        processing_time = time.time() - start_time
-        log_api_request("POST", "/api/performance-analysis/report",
-                       p.user_id, p.id, processing_time)
+            try:
+                os.remove(report_path)
+            except FileNotFoundError:
+                pass
 
-        return PerformanceReportResponse(
-            user_id=p.user_id,
-            address=analysis_result["report_path"],
-            created_at=analysis_result["created_at"]
-        )
-    except AIServiceException:
-        raise
-    except Exception as e:
-        logger.error(f"성능 분석 중 예상치 못한 오류: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"성능 분석 처리 오류: {str(e)}")
+            # 4) 응답 address 선택
+            if address_mode == "url":
+                addr = item.s3Url
+            elif address_mode == "presigned":
+                addr = item.presignedUrl
+            else:
+                addr = item.s3Key
+
+            return PerformanceReportResponse(
+                user_id=p.user_id,
+                address=addr,
+                created_at=datetime.now().isoformat()
+            )
+
+    return await asyncio.gather(*[run_one(p) for p in request])
+
 
 
 
@@ -387,3 +388,66 @@ async def analyze_performance_detailed(request: Union[PanelRequest, List[PanelRe
     except Exception as e:
         logger.error(f"상세 성능 분석 중 예상치 못한 오류: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"상세 분석 처리 오류: {str(e)}")
+
+
+# --- S3 client ---
+AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
+S3_BUCKET = os.getenv("S3_BUCKET", "solar-panel-storage")
+PRESIGN_EXP_SECONDS = int(os.getenv("PRESIGN_EXP_SECONDS", "900"))
+
+session = boto3.session.Session(
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
+    region_name=AWS_REGION,
+)
+
+s3_client = session.client("s3")
+
+try:
+    sts = session.client("sts")
+    ident = sts.get_caller_identity()
+    ak = os.getenv("AWS_ACCESS_KEY_ID") or ""
+    logger.info(
+        f"AWS credentials OK (acct={ident['Account']}, arn={ident['Arn']}, key=***{ak[-4:]})"
+    )
+except Exception as e:
+    logger.error(f"AWS credentials NOT found/invalid: {e}")
+
+def upload_pdf_to_s3(local_path: str, key: str) -> ReportItemResult:
+    content_type = "application/pdf"
+    size = os.path.getsize(local_path)
+    extra_args = {
+        "ContentType": content_type,
+        "ContentDisposition": f'attachment; filename="{os.path.basename(local_path)}"'
+    }
+    try:
+        resp = s3_client.upload_file(
+            Filename=local_path,
+            Bucket=S3_BUCKET,
+            Key=key,
+            ExtraArgs=extra_args
+        )
+        head = s3_client.head_object(Bucket=S3_BUCKET, Key=key)
+        e_tag = head.get("ETag", "").strip('"')
+
+        s3_url = f"https://{S3_BUCKET}.s3.{os.getenv('AWS_DEFAULT_REGION','ap-northeast-2')}.amazonaws.com/{key}"
+        presigned = s3_client.generate_presigned_url(
+            ClientMethod="get_object",
+            Params={"Bucket": S3_BUCKET, "Key": key},
+            ExpiresIn=PRESIGN_EXP_SECONDS
+        )
+        expires_at = str(int(time.time()) + PRESIGN_EXP_SECONDS)
+
+        return ReportItemResult(
+            id=int(os.path.basename(key).split("_")[0]) if "_" in os.path.basename(key) else -1,
+            s3Key=key,
+            s3Url=s3_url,
+            presignedUrl=presigned,
+            expiresAt=expires_at,
+            contentType=content_type,
+            contentLength=size,
+            eTag=e_tag
+        )
+    except (BotoCoreError, ClientError) as e:
+        raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")

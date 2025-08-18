@@ -118,6 +118,15 @@ class Settings:
         """로그 레벨을 정수로 반환"""
         return getattr(logging, self.log_level.upper(), logging.INFO)
 
+    # s3
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_default_region: str = "ap-northeast-2"
+    s3_bucket: str = "solar-panel-storage"
+
+    class Config:
+        env_file = ".env"
+
 
 # 전역 설정 인스턴스
 settings = Settings()
