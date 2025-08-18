@@ -8,6 +8,10 @@ from typing import Optional, List, Union
 import asyncio
 from datetime import datetime
 
+# === (ADD) Chatbot wiring imports ===
+from app.api import chat as chat_router
+from app.services import rag
+
 # 개선된 임포트
 from app.core.config import settings, validate_settings
 from app.core.exceptions import (
@@ -71,6 +75,13 @@ async def lifespan(app: FastAPI):
         log_model_status("PerformanceAnalyzer", "loaded",
                         loaded=performance_analyzer.is_loaded())
 
+        # === (ADD) Chatbot RAG warmup ===
+        try:
+            rag.warmup()
+            logger.info("🤖 Chatbot RAG warmup 완료")
+        except Exception as e:
+            logger.warning(f"🤖 Chatbot RAG warmup 건너뜀: {e}")
+
         logger.info("✅ AI 서비스 준비 완료!")
 
     except Exception as e:
@@ -99,6 +110,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# === (ADD) Chatbot router mount ===
+app.include_router(chat_router.router)
 
 
 # 전역 예외 처리기

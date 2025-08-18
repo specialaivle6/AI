@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<title>SolarMate 관리자</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,sans-serif;margin:16px}
+  .row{display:flex;gap:8px;margin:8px 0}
+  .btn{padding:8px 12px;border:1px solid #ddd;border-radius:8px;cursor:pointer}
+  .card{border:1px solid #eee;border-radius:12px;padding:12px;margin-top:12px}
+  textarea{width:100%;min-height:100px}
+</style>
+</head>
+<body>
+<h2>관리자 모드</h2>
+
+<div class="row">
+  <input id="token" placeholder="X-Admin-Token" style="flex:1"/>
+  <button id="save" class="btn">저장</button>
+</div>
+
+<div id="pending">불러오는 중...</div>
+
+<script>
+const API = location.origin;
+const tokenInput = document.getElementById('token');
+document.getElementById('save').onclick = ()=>{ localStorage.setItem('admin_token', tokenInput.value.trim()); load(); };
+tokenInput.value = localStorage.getItem('admin_token') || '';
+
+async function load(){
+  const token = localStorage.getItem('admin_token') || '';
+  try{
+    const r = await fetch(`${API}/api/v1/moderation/pending`, { headers:{'X-Admin-Token': token}});
+    if(!r.ok){ document.getElementById('pending').textContent = '토큰 오류 또는 권한 없음'; return; }
+    const j = await r.json();
+    const items = j.items || [];
+    if(!items.length){ pending.textContent = '대기 항목 없음'; return; }
+    pending.innerHTML = items.map(it=>{
+      const id = `i_${it.id}`;
+      const draft = it.draft_answer ? `<div style="white-space:pre-wrap;background:#fafafa;border:1px solid #eee;border-radius:8px;padding:8px;margin:6px 0">[AI 초안]\n${it.draft_answer}</div>` : '';
+      return `<div class="card">
+        <div><b>#${it.id}</b> ${it.asked_at}</div>
+        <div><b>Q:</b> ${it.question}</div>
+        ${draft}
+        <textarea id="${id}_ans" placeholder="승인 시 비우면 초안 사용 / 수정·직접작성은 여기에 입력"></textarea>
+        <div class="row">
+          <input id="${id}_cat" placeholder="카테고리(기타)"/>
+          <input id="${id}_tags" placeholder="태그(세미콜론;구분)"/>
+          <button class="btn" onclick="approve(${it.id},'${id}')">승인</button>
+          <button class="btn" onclick="reject(${it.id},'${id}')">거절/직접작성</button>
+        </div>
+      </div>`;
+    }).join('');
+  }catch{ pending.textContent = '로드 실패'; }
+}
+
+async function approve(logId, base){
+  const token = localStorage.getItem('admin_token') || '';
+  const answer = document.getElementById(`${base}_ans`).value.trim() || null;
+  const category = (document.getElementById(`${base}_cat`).value || '기타').trim();
+  const tags = (document.getElementById(`${base}_tags`).value || '').split(';').map(s=>s.trim()).filter(Boolean);
+  const r = await fetch(`${API}/api/v1/moderation/approve`, {
+    method:'POST', headers:{'Content-Type':'application/json','X-Admin-Token': token},
+    body: JSON.stringify({ log_id: logId, answer, category, tags })
+  });
+  if(!r.ok){ alert('승인 실패'); return; }
+  alert('승인 완료 (지식베이스 반영)');
+  load();
+}
+
+async function reject(logId, base){
+  const token = localStorage.getItem('admin_token') || '';
+  const answer = document.getElementById(`${base}_ans`).value.trim() || null;
+  const category = (document.getElementById(`${base}_cat`).value || '기타').trim();
+  const tags = (document.getElementById(`${base}_tags`).value || '').split(';').map(s=>s.trim()).filter(Boolean);
+  const r = await fetch(`${API}/api/v1/moderation/reject`, {
+    method:'POST', headers:{'Content-Type':'application/json','X-Admin-Token': token},
+    body: JSON.stringify({ log_id: logId, answer, category, tags })
+  });
+  if(!r.ok){ alert('거절 실패'); return; }
+  alert('거절 처리 (직접작성 답변은 반영됨)');
+  load();
+}
+
+load();
+</script>
+</body>
+</html>
