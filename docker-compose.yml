@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  ai-service:
+    build: .
+    image: solar-panel-ai:latest
+    container_name: solar-ai-service
+    ports:
+      - "8000:8000"
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - DEVICE=cpu
+    volumes:
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./temp:/app/temp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
