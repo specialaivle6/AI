@@ -1,15 +1,16 @@
 """
-PDF 리포트 생성 유틸리티 - 폰트 문제 해결 버전
-안전한 폰트 로딩 및 Docker 환경 대응
+PDF 리포트 생성 유틸리티
+new_service의 고급 리포트 생성 기능 완전 통합
 """
 
 import os
 import matplotlib
 matplotlib.use("Agg")  # 서버용 백엔드 설정
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -24,6 +25,9 @@ import logging
 from app.utils.performance_utils import CostEstimate
 
 logger = logging.getLogger(__name__)
+
+# 전역 변수 안전 초기화
+_RL_FONT_REG, _RL_FONT_BOLD = None, None
 
 
 def _is_valid_font_file(font_path: Path) -> bool:
@@ -214,16 +218,22 @@ def _get_korean_fonts():
             logger.error(f"❌ 폰트 지연 로딩 실패: {e}")
             _RL_FONT_REG, _RL_FONT_BOLD = 'Helvetica', 'Helvetica-Bold'
 
+    # 추가 안전장치
+    if _RL_FONT_REG is None:
+        _RL_FONT_REG = 'Helvetica'
+    if _RL_FONT_BOLD is None:
+        _RL_FONT_BOLD = 'Helvetica-Bold'
+
     return _RL_FONT_REG, _RL_FONT_BOLD
 
 
-# 전역 변수 안전 초기화
+# 전역 폰트 초기화 시도
 try:
     _RL_FONT_REG, _RL_FONT_BOLD = _setup_korean_fonts()
     logger.info(f"🔤 전역 폰트 초기화 완료: {_RL_FONT_REG}, {_RL_FONT_BOLD}")
 except Exception as e:
     logger.warning(f"⚠️ 전역 폰트 초기화 실패, 지연 로딩 사용: {e}")
-    _RL_FONT_REG, _RL_FONT_BOLD = None, None
+    _RL_FONT_REG, _RL_FONT_BOLD = "Helvetica", "Helvetica-Bold"
 
 
 def _add_value_labels(ax):
@@ -264,8 +274,80 @@ def _status_kor_and_color(status: str) -> tuple:
     return "정상 패널", "#F59E0B"          # 주황(Healthy)
 
 
+# ---- 그래프/피처 표시 유틸 -------------------------------------------------
+def _small_bar_chart(predicted: float, actual: float, out_path: str):
+    fig, ax = plt.subplots(figsize=(6.0, 3.0), dpi=210)  # 2:1 고정
+
+    bars = ax.bar(["예측", "실측"], [predicted, actual], width=0.55, linewidth=0)
+    ax.grid(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_alpha(0.4)
+    ax.spines["bottom"].set_alpha(0.4)
+
+    ymax = max(predicted, actual)
+    ax.set_ylim(0, ymax * 1.18 if ymax > 0 else 1.0)
+
+    for p in bars:
+        v = p.get_height()
+        ax.text(p.get_x() + p.get_width()/2, v, f"{v:.1f}", ha="center", va="bottom",
+                fontsize=10, fontweight="bold")
+
+    ax.set_ylabel("kWh", fontsize=10)
+    ax.tick_params(labelsize=10)
+
+    fig.tight_layout(pad=0.6)
+    fig.savefig(out_path, dpi=180, bbox_inches="tight", facecolor="white", pad_inches=0.02)
+    plt.close(fig)
+
+
+def _pr_gauge(pr: float, color: str, out_path: str):
+    pr = max(0.0, min(float(pr), 1.0))
+
+    fig, ax = plt.subplots(figsize=(6.0, 1.8), dpi=210)  # 10:3.0 고정
+    ax.axis("off")
+
+    x0, y0, w, h = 0.05, 0.40, 0.90, 0.34
+    ax.add_patch(Rectangle((x0, y0), w, h, transform=ax.transAxes, color="#E5E7EB"))
+    ax.add_patch(Rectangle((x0, y0), w * pr, h, transform=ax.transAxes, color=color))
+
+    for t in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
+        ax.text(x0 + w*t, y0 - 0.18, f"{t:.1f}", ha="center", va="center",
+                fontsize=9, color="#6B7280", transform=ax.transAxes)
+
+    x_lbl = min(x0 + w*pr, x0 + w)
+    ha = "right" if pr > 0.88 else "left"
+    ax.text(x_lbl, y0 + h/2, f"PR {pr:.2f}", ha=ha, va="center",
+            fontsize=10, fontweight="bold", color="#111827", transform=ax.transAxes)
+
+    fig.tight_layout(pad=0.2)
+    fig.savefig(out_path, bbox_inches="tight", facecolor="white", pad_inches=0.02)
+    plt.close(fig)
+
+
+def _pretty_feature_name(name: str) -> str:
+    mapping = {
+        "PMPP_rated_W": "정격출력(W)",
+        "Temp_Coeff_per_K": "온도계수(/K)",
+        "Annual_Degradation_Rate": "연간 열화율",
+        "Install_Angle": "설치 각도(°)",
+        "Avg_Temp": "평균 기온(°C)",
+        "Avg_Humidity": "평균 습도(%)",
+        "Avg_Windspeed": "평균 풍속(m/s)",
+        "Avg_Sunshine": "평균 일조(h)",
+        "Elapsed_Months": "경과 개월",
+    }
+    if name in mapping: return mapping[name]
+    if name.startswith("Panel_Model_"): return "패널 모델: " + name.replace("Panel_Model_", "")
+    if name.startswith("Install_Direction_"): return "설치 방향: " + name.replace("Install_Direction_", "")
+    if name.startswith("Region_"): return "지역: " + name.replace("Region_", "")
+    return name
+# -------------------------------------------------------------------------------
+
+
 def generate_report(predicted: float, actual: float, status: str, user_id: str,
-                   lifespan: Optional[float] = None, cost: Optional[CostEstimate] = None) -> str:
+                   lifespan: Optional[float] = None, cost: Optional[CostEstimate] = None,
+                   extras: Optional[Dict[str, Any]] = None) -> str:
     """
     안전한 PDF 리포트 생성 - 폰트 문제 대응
 
@@ -287,9 +369,10 @@ def generate_report(predicted: float, actual: float, status: str, user_id: str,
     ts_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ts_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs("reports", exist_ok=True)
+    os.makedirs("temp", exist_ok=True)
     report_path = f"reports/{user_id}_{ts_id}.pdf"
-    bar_chart = f"reports/{user_id}_{ts_id}_bar.png"
-    pr_chart = f"reports/{user_id}_{ts_id}_pr.png"
+    bar_chart = f"temp/{user_id}_{ts_id}_bar.png"
+    pr_chart = f"temp/{user_id}_{ts_id}_pr.png"
 
     # 색상 팔레트
     COLORS = {
@@ -305,164 +388,162 @@ def generate_report(predicted: float, actual: float, status: str, user_id: str,
     pr = (actual / predicted) if predicted > 0 else 0.0
     status_label_kor, status_color = _status_kor_and_color(status)
 
-    try:
-        # 메인 막대 그래프 저장 (크게)
-        fig, ax = plt.subplots(figsize=(8.5, 4.8))
-        bars = ax.bar(["예측 발전량", "실측 발전량"], [predicted, actual],
-                      edgecolor="white", linewidth=0.8,
-                      color=[COLORS["pred"], COLORS["act"]])
-        ax.set_title("발전량 비교 (kWh)")
-        ax.set_ylabel("kWh")
-        ax.grid(True, axis="y", linestyle="--", linewidth=0.6, color=COLORS["grid"])
-        for p in bars:
-            ax.text(p.get_x() + p.get_width()/2, p.get_height(),
-                    f"{p.get_height():.1f}", ha="center", va="bottom")
-        fig.tight_layout()
-        fig.savefig(bar_chart, dpi=160)
-        plt.close(fig)
-    except Exception as e:
-        logger.warning(f"⚠️ 막대 그래프 생성 실패: {e}")
-        # 빈 이미지 파일 생성
-        with open(bar_chart, 'w') as f:
-            f.write("")
+    _small_bar_chart(predicted, actual, bar_chart)
+    _pr_gauge(pr, status_color, pr_chart)
 
-    try:
-        # PR 게이지(수평 바) 저장
-        fig, ax = plt.subplots(figsize=(8.5, 1.2))
-        x_pos = max(0.0, min(float(pr), 1.0))  # 0~1 클램프
-        ax.barh([0], [1.0], color=COLORS["grid"])         # 배경
-        ax.barh([0], [x_pos], color=status_color)         # 실제 PR
-        ax.set_xlim(0, 1)
-        ax.set_yticks([])
-        ax.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
-        ax.set_xticklabels(["0", "0.2", "0.4", "0.6", "0.8", "1.0"])
-        ax.set_title("성능비율(PR) 게이지")
-        ax.grid(False)
-        ha = "right" if x_pos > 0.85 else "left"
-        ax.annotate(
-            f"{pr:.2f}", xy=(x_pos, 0),
-            xytext=(6 if ha == "left" else -6, 0),
-            textcoords="offset points",
-            va="center", ha=ha, fontweight="bold"
-        )
-        fig.tight_layout()
-        fig.savefig(pr_chart, dpi=160, transparent=True)
-        plt.close(fig)
-    except Exception as e:
-        logger.warning(f"⚠️ PR 게이지 생성 실패: {e}")
-        # 빈 이미지 파일 생성
-        with open(pr_chart, 'w') as f:
-            f.write("")
-
-    # PDF 스타일 (안전한 폰트 사용)
     styles = getSampleStyleSheet()
-    try:
-        styles.add(ParagraphStyle(name="KR-Title", fontName=font_bold, fontSize=18, leading=22, alignment=TA_LEFT))
-        styles.add(ParagraphStyle(name="KR-H2", fontName=font_bold, fontSize=13, leading=18))
-        styles.add(ParagraphStyle(name="KR-Body", fontName=font_reg, fontSize=11, leading=16))
-    except Exception as e:
-        logger.warning(f"⚠️ PDF 스타일 설정 실패, 기본 폰트 사용: {e}")
-        styles.add(ParagraphStyle(name="KR-Title", fontName="Helvetica-Bold", fontSize=18, leading=22, alignment=TA_LEFT))
-        styles.add(ParagraphStyle(name="KR-H2", fontName="Helvetica-Bold", fontSize=13, leading=18))
-        styles.add(ParagraphStyle(name="KR-Body", fontName="Helvetica", fontSize=11, leading=16))
+    styles.add(ParagraphStyle(name="KR-Title", fontName=font_bold, fontSize=18, leading=22,
+                              alignment=TA_LEFT, spaceAfter=3))     # ↑ leading/spaceAfter 소폭 증가
+    styles.add(ParagraphStyle(name="KR-H2", fontName=font_bold, fontSize=12.5, leading=16,
+                              spaceBefore=0, spaceAfter=3))         # ↑ 제목 간격 소폭 증가
+    styles.add(ParagraphStyle(name="KR-Body", fontName=font_reg, fontSize=10.5, leading=15))  # ↑ 줄간격
+    styles.add(ParagraphStyle(name="KR-Small", fontName=font_reg, fontSize=9.0, leading=13))  # ↑ 폰트/줄간격
 
     # PDF 본문
     doc = SimpleDocTemplate(
         report_path, pagesize=A4,
-        leftMargin=30, rightMargin=30, topMargin=32, bottomMargin=32
+        leftMargin=30, rightMargin=30, topMargin=28, bottomMargin=22
     )
     story = []
 
-    try:
-        # 제목/메타
-        story.append(Paragraph("태양광 패널 성능 예측 및 비용 예측 보고서", styles["KR-Title"]))
-        story.append(Spacer(1, 4))
-        story.append(Paragraph(f"• 고객 ID: {user_id}", styles["KR-Body"]))
-        story.append(Paragraph(f"• 보고서 생성일시: {ts_str}", styles["KR-Body"]))
-        story.append(Spacer(1, 8))
-        story.append(HRFlowable(width="100%", thickness=0.8, color=colors.HexColor("#DDDDDD")))
-        story.append(Spacer(1, 10))
+    # 제목/메타
+    story.append(Paragraph("태양광 패널 성능 예측 및 비용 예측 보고서", styles["KR-Title"]))
+    story.append(Paragraph(f"• 고객 ID: {user_id}", styles["KR-Body"]))
+    story.append(Paragraph(f"• 보고서 생성일시: {ts_str}", styles["KR-Body"]))
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width="100%", thickness=0.8, color=colors.HexColor("#DDDDDD")))
+    story.append(Spacer(1, 6))
 
-        # 1) 성능 요약 (표) — 판정 칸은 Paragraph로 색 입힘
-        status_chip = Paragraph(f'<font color="{status_color}">{status_label_kor}</font>', styles["KR-Body"])
-        rows = [
-            ["예측 발전량 (kWh)", f"{predicted:.2f}"],
-            ["실제 발전량 (kWh)", f"{actual:.2f}"],
-            ["성능비율 (실측/예측)", f"{pr:.2f}"],
-            ["판정", status_chip],
-        ]
-        if lifespan:
-            rows.append(["예상 잔여 수명", f"약 {lifespan*12:.0f} 개월"])
+    # 0) 패널 정보 요약
+    story.append(Paragraph("패널 정보 요약", styles["KR-H2"]))
+    extras = extras or {}
+    snap = extras.get("feature_snapshot") or {}
+    panel_info = extras.get("panel_info") or {}
 
-        table = Table([["항목", "값"]] + rows, repeatRows=1, colWidths=[6*cm, 9*cm])
-        table.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#F3F4F6")),
-            ("FONTNAME", (0,0), (-1,0), font_bold),
-            ("FONTNAME", (0,1), (0,-1), font_bold),
-            ("FONTNAME", (1,1), (1,-1), font_reg),
-            ("ALIGN", (0,0), (-1,0), "CENTER"),
-            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-            ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#FAFAFA")]),
-            ("LEFTPADDING", (0,0), (-1,-1), 6),
-            ("RIGHTPADDING", (0,0), (-1,-1), 6),
-            ("TOPPADDING", (0,0), (-1,-1), 4),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 4),
-        ]))
+    num = snap.get("numeric", {}) or {}
+    cat = snap.get("categorical", {}) or {}
 
-        story.append(Paragraph("1) 성능 요약", styles["KR-H2"]))
-        story.append(table)
-        story.append(Spacer(1, 8))
+    model_name = panel_info.get("model_name") or cat.get("Panel_Model", "")
+    region = cat.get("Region", "")
+    install_date = (panel_info.get("installation") or {}).get("date", "")
+    install_angle = (panel_info.get("installation") or {}).get("angle", num.get("Install_Angle", ""))
+    install_dir = (panel_info.get("installation") or {}).get("direction", cat.get("Install_Direction", ""))
 
-        # 이미지 추가 (존재하는 경우만)
-        if Path(bar_chart).exists() and Path(bar_chart).stat().st_size > 0:
-            story.append(Image(bar_chart, width=16*cm, height=9.2*cm))
-        story.append(Spacer(1, 8))
+    rows_info = [
+        ["패널 모델", model_name],
+        ["지역", region],
+        ["설치일", install_date],
+        ["설치 각도(°)", f"{install_angle}"],
+        ["설치 방향", install_dir],
+    ]
+    info_table = Table([["항목","값"]] + rows_info, repeatRows=1, colWidths=[5.2*cm, 8.8*cm])
+    info_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#F3F4F6")),
+        ("FONTNAME", (0,0), (-1,0), font_bold),
+        ("FONTNAME", (0,1), (0,-1), font_bold),
+        ("FONTNAME", (1,1), (1,-1), font_reg),
+        ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#FAFAFA")]),
+        ("FONTSIZE", (0,0), (-1,-1), 9.0),             # ↑ 8.5 -> 9.0
+        ("LEFTPADDING", (0,0), (-1,-1), 2),            # ↑ 패딩 약간 증가
+        ("RIGHTPADDING", (0,0), (-1,-1), 2),
+        ("TOPPADDING", (0,0), (-1,-1), 2),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 6))
 
-        if Path(pr_chart).exists() and Path(pr_chart).stat().st_size > 0:
-            story.append(Image(pr_chart, width=16*cm, height=2.2*cm))
-        story.append(Spacer(1, 12))
+    # 1) 성능 요약
+    status_chip = Paragraph(f'<font color="{status_color}">{status_label_kor}</font>', styles["KR-Body"])
+    rows = [
+        ["예측 발전량 (kWh)", f"{predicted:.2f}"],
+        ["실제 발전량 (kWh)", f"{actual:.2f}"],
+        ["성능비율 (실측/예측)", f"{pr:.2f}"],
+        ["판정", status_chip],
+    ]
+    if lifespan:
+        rows.append(["예상 잔여 수명", f"약 {lifespan*12:.0f} 개월"])
 
-        # 2) 교체/비용 — CostEstimate 객체 활용
-        need_replace = ("성능저하" in status_label_kor)
-        immediate = int(cost.immediate_cost) if cost else 0
+    table = Table([["항목", "값"]] + rows, repeatRows=1, colWidths=[5.2*cm, 8.8*cm])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#F3F4F6")),
+        ("FONTNAME", (0,0), (-1,0), font_bold),
+        ("FONTNAME", (0,1), (0,-1), font_bold),
+        ("FONTNAME", (1,1), (1,-1), font_reg),
+        ("ALIGN", (0,0), (-1,0), "CENTER"),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#FAFAFA")]),
+        ("LEFTPADDING", (0,0), (-1,-1), 2),
+        ("RIGHTPADDING", (0,0), (-1,-1), 2),
+        ("TOPPADDING", (0,0), (-1,-1), 2),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+        ("FONTSIZE", (0,0), (-1,-1), 9.0),             # ↑ 8.5 -> 9.0
+    ]))
 
-        story.append(Paragraph("2) 교체/비용", styles["KR-H2"]))
-        story.append(Paragraph(f"- 교체 여부: {'교체가 필요합니다!' if need_replace else '교체 불필요'}", styles["KR-Body"]))
-        story.append(Paragraph(f"- 예상 교체 비용(자재+폐기+인건비): {immediate:,} 원", styles["KR-Body"]))
+    story.append(Paragraph("1) 성능 요약", styles["KR-H2"]))
+    story.append(table)
+    story.append(Spacer(1, 4))
 
-        if not need_replace:
-            story.append(Paragraph("  * 정상/우수 판정의 패널은 비용을 0원으로 표시합니다.", styles["KR-Body"]))
+    # 그래프
+    story.append(Image(bar_chart, width=10.0*cm, height=5.0*cm))
+    story.append(Spacer(1, 2))
+    story.append(Image(pr_chart,  width=10.0*cm, height=3.0*cm))
+    story.append(Spacer(1, 2))
 
-            # 미래 교체 정보 추가
-            if cost and cost.future_cost_year and cost.future_cost_total:
-                story.append(Paragraph(f"- 예상 미래 교체: {cost.future_cost_year}년, 비용 {cost.future_cost_total:,}원", styles["KR-Body"]))
+    # 2) 예측 근거
+    story.append(Paragraph("2) 예측 근거", styles["KR-H2"]))
+    story.append(Paragraph(
+        "• 기여도 부호: +는 예측 발전량을 높이는 방향, −는 낮추는 방향입니다. 절댓값이 클수록 영향력이 큽니다. (범주형은 현재 선택된 항목만 고려)",
+        styles["KR-Small"]
+    ))
+    story.append(Spacer(1, 3))
 
-        # PDF 생성
-        doc.build(story)
-        logger.info(f"✅ PDF 리포트 생성 성공: {report_path}")
+    top_impacts: List[Tuple[str, float]] = (extras.get("top_impacts") or [])[:5]
+    rows_imp = [[i, _pretty_feature_name(k), f"{v:+.3f}"] for i, (k, v) in enumerate(top_impacts[:5], 1)]
 
-    except Exception as e:
-        logger.error(f"❌ PDF 생성 실패: {e}")
-        # 최소한의 텍스트 파일이라도 생성
-        with open(report_path.replace('.pdf', '.txt'), 'w', encoding='utf-8') as f:
-            f.write(f"태양광 패널 성능 보고서\n")
-            f.write(f"고객 ID: {user_id}\n")
-            f.write(f"생성일시: {ts_str}\n")
-            f.write(f"예측 발전량: {predicted:.2f} kWh\n")
-            f.write(f"실제 발전량: {actual:.2f} kWh\n")
-            f.write(f"성능비율: {pr:.2f}\n")
-            f.write(f"상태: {status}\n")
-        return report_path.replace('.pdf', '.txt')
+    imp_table = Table([["순위", "피처", "기여도 (ΔkWh)"]] + rows_imp,
+                      colWidths=[1.8*cm, 8.1*cm, 3.5*cm])  # 순위 열 조금 넓힘
+    imp_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#F3F4F6")),
+        ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+        ("FONTNAME", (0,0), (-1,0), font_bold),
+        ("FONTNAME", (0,1), (-1,-1), font_reg),
+        ("ALIGN", (0,0), (0,-1), "CENTER"),
+        ("ALIGN", (2,1), (2,-1), "RIGHT"),
+        ("FONTSIZE", (0,0), (-1,-1), 9.0),            # ↑ 8.5 -> 9.0
+        ("LEFTPADDING", (0,0), (-1,-1), 3),           # ↑ 패딩 증가
+        ("RIGHTPADDING", (0,0), (-1,-1), 3),
+        ("TOPPADDING", (0,0), (-1,-1), 2),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+    ]))
+    if rows_imp:
+        story.append(imp_table)
+        story.append(Spacer(1, 6))
+    else:
+        story.append(Paragraph("• 중요 피처 정보를 계산할 수 없어 표시하지 않습니다.", styles["KR-Small"]))
+        story.append(Spacer(1, 6))
 
-    finally:
-        # 임시 이미지 삭제
-        for p in (bar_chart, pr_chart):
-            try:
-                if Path(p).exists():
-                    os.remove(p)
-            except Exception:
-                pass
+    # 3) 교체/비용
+    need_replace = ("성능저하" in status_label_kor)
+    immediate = int(cost.immediate_cost) if cost else 0
+
+    story.append(Paragraph("3) 교체/비용", styles["KR-H2"]))
+    story.append(Paragraph(f"- 교체 여부: {'교체 필요' if need_replace else '교체 불필요'}", styles["KR-Body"]))
+    story.append(Paragraph(f"- 예상 교체 비용(자재+폐기+인건비): {immediate:,} 원", styles["KR-Body"]))
+
+    if not need_replace:
+        story.append(Paragraph("  * 정상/우수 판정의 패널은 비용을 0원으로 표시합니다.", styles["KR-Small"]))
+        if cost and cost.future_cost_year and cost.future_cost_total:
+            story.append(Paragraph(f"- 예상 미래 교체: {cost.future_cost_year}년, 비용 {cost.future_cost_total:,}원", styles["KR-Small"]))
+
+    doc.build(story)
+
+    for p in (bar_chart, pr_chart):
+        try:
+            os.remove(p)
+        except FileNotFoundError:
+            pass
 
     return report_path
 
