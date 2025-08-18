@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<title>SolarMate 챗봇</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  :root{--bg:#f7f7fb;--mono:#333;--accent:#2563eb;--bot:#ffffff;--user:#e8f0ff;}
+  body{background:var(--bg);font-family:system-ui,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,sans-serif;margin:0;}
+  header{position:sticky;top:0;background:#fff;border-bottom:1px solid #eee;padding:12px 16px;font-weight:700}
+  .container{max-width:920px;margin:0 auto;padding:16px}
+  .chat{background:#fff;border:1px solid #eee;border-radius:16px;padding:12px;min-height:380px}
+  .msg{display:flex;margin:10px 0}
+  .msg .bubble{max-width:72%;padding:10px 12px;border-radius:14px;line-height:1.5;white-space:pre-wrap}
+  .bot .bubble{background:var(--bot);border:1px solid #eee}
+  .user{justify-content:flex-end}
+  .user .bubble{background:var(--user);border:1px solid #dfe6ff}
+  .time{font-size:12px;color:#666;margin-top:4px}
+  .composer{display:flex;gap:8px;margin-top:12px}
+  .composer input{flex:1;padding:12px;border:1px solid #ddd;border-radius:10px}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 14px;cursor:pointer}
+  .card{background:#fff;border:1px solid #eee;border-radius:16px;padding:12px;margin-top:16px}
+  h3{margin:10px 0}
+  .qa .item{border-top:1px solid #f0f0f0;padding:10px 4px}
+  .badge{font-size:12px;font-weight:700}
+  .ok{color:#065f46}
+  .pd{color:#b91c1c}
+</style>
+</head>
+<body>
+<header>태양광 패널 챗봇 (RAG)</header>
+<div class="container">
+  <div class="chat" id="chat"></div>
+  <div class="composer">
+    <input id="q" placeholder="메시지를 입력하세요. 예: 패널 성능은 어떻게 비교하나요?"/>
+    <button id="send" class="btn">보내기</button>
+  </div>
+
+  <div class="card">
+    <h3>최근 대화 (공개)</h3>
+    <div id="recent">불러오는 중...</div>
+  </div>
+
+  <div class="card qa">
+    <h3>승인된 Q&A</h3>
+    <div id="approved">불러오는 중...</div>
+  </div>
+</div>
+
+<script>
+const API = location.origin;
+const chatEl = document.getElementById('chat');
+const qEl = document.getElementById('q');
+const sendBtn = document.getElementById('send');
+
+function addMsg(role, text){
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = text;
+  const time = document.createElement('div');
+  time.className = 'time';
+  time.textContent = new Date().toLocaleString();
+  wrap.appendChild(bubble);
+  wrap.appendChild(time);
+  chatEl.appendChild(wrap);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+async function ask(){
+  const text = qEl.value.trim();
+  if(!text) return;
+  addMsg('user', text);
+  qEl.value = '';
+  addMsg('bot', '생각중...');
+
+  try{
+    const r = await fetch(`${API}/api/v1/chat/query`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question: text })
+    });
+    const t = await r.text();
+    const data = JSON.parse(t);
+    // 마지막 bot 말풍선 교체
+    chatEl.lastChild.querySelector('.bubble').textContent =
+      `${data.answer}\n\n[${data.confidence_status} | score=${Math.round(data.confidence_score*100)}% dist=${data.top_distance.toFixed(3)}]`;
+    loadRecent(); // 공개 로그 갱신
+  }catch(e){
+    chatEl.lastChild.querySelector('.bubble').textContent = '오류: ' + (e.message || e);
+  }
+}
+
+async function loadRecent(){
+  try{
+    const r = await fetch(`${API}/api/v1/logs/public`);
+    const j = await r.json();
+    const items = j.items || [];
+    if(!items.length){ recent.textContent = '없음'; return; }
+    recent.innerHTML = items.map(it=>{
+      const badge = it.confidence_status === 'ANSWERABLE' ? '<span class="badge ok">[자동응답]</span>' : '<span class="badge ok">[관리자 반영]</span>';
+      return `<div class="item">
+        ${badge}
+        <div><b>Q</b> (${it.asked_at}) : ${it.question}</div>
+        <div><b>A</b> (${it.answered_at||'-'}) : ${it.answer||'(미해결)'}</div>
+      </div>`
+    }).join('');
+  }catch{ recent.textContent = '로드 실패'; }
+}
+
+async function loadApproved(){
+  try{
+    const r = await fetch(`${API}/api/v1/qa/approved`);
+    const j = await r.json();
+    const items = j.items || [];
+    if(!items.length){ approved.textContent = '없음'; return; }
+    approved.innerHTML = items.map(it=>{
+      return `<div class="item"><div><b>Q.</b> ${it.question}</div><div><b>A.</b> ${it.answer}</div></div>`;
+    }).join('');
+  }catch{ approved.textContent = '로드 실패'; }
+}
+
+sendBtn.onclick = ask;
+qEl.addEventListener('keydown', e=>{ if(e.key==='Enter') ask(); });
+
+const recent = document.getElementById('recent');
+const approved = document.getElementById('approved');
+loadRecent(); loadApproved();
+</script>
+</body>
+</html>

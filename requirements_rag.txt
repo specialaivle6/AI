@@ -1,0 +1,9 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.8.2
+openai==1.45.0
+python-multipart==0.0.9
+chromadb==0.5.5
+# 아래 두 줄은 OpenAI 임베딩 모드면 없어도 됩니다(기본 openai로 설정함)
+# sentence-transformers==2.7.0
+# torch>=2.2.0
