@@ -9,8 +9,8 @@ from typing import Optional, List, Union
 import asyncio
 from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=False)
 
-# 개선된 임포트
 from app.core.config import settings, validate_settings
 from app.core.exceptions import (
     AIServiceException, ModelNotLoadedException,
@@ -33,6 +33,17 @@ from app.schemas.schemas import (
 from app.utils.image_utils import download_image_from_s3, get_image_info
 from app.utils.report_generator import generate_performance_report
 from app.utils.performance_utils import estimate_panel_cost
+
+""" s3 업로드용 """
+import os, time
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+
+AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
+S3_BUCKET = os.getenv("S3_BUCKET", "solar-panel-storage")
+PRESIGN_EXP_SECONDS = int(os.getenv("PRESIGN_EXP_SECONDS", "900"))
+
+s3 = boto3.client("s3", region_name=AWS_REGION)
 
 # 로깅 초기화
 setup_logging()
@@ -388,12 +399,37 @@ async def analyze_performance_detailed(request: Union[PanelRequest, List[PanelRe
     except Exception as e:
         logger.error(f"상세 성능 분석 중 예상치 못한 오류: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"상세 분석 처리 오류: {str(e)}")
+        
 
+def upload_pdf_to_s3(local_path: str, user_id) -> str:
+    """
+    로컬 PDF를 S3에 업로드하고 S3 object key를 반환.
+    파일명 충돌 방지를 위해 timestamp 포함.
+    """
+    file_name = os.path.basename(local_path) or "report.pdf"
+    ts = int(time.time())
+    key = f"reports/{user_id}/{ts}.pdf"
+    extra = {
+        "ContentType": "application/pdf",
+        "ContentDisposition": f'attachment; filename="{file_name}"'
+    }
+    try:
+        s3.upload_file(Filename=local_path, Bucket=S3_BUCKET, Key=key, ExtraArgs=extra)
+        return key
+    except (BotoCoreError, ClientError) as e:
+        raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "app.main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.is_development,
+        log_level=settings.log_level.lower()
+    )
 
 # --- S3 client ---
-AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
-S3_BUCKET = os.getenv("S3_BUCKET", "solar-panel-storage")
-PRESIGN_EXP_SECONDS = int(os.getenv("PRESIGN_EXP_SECONDS", "900"))
 
 session = boto3.session.Session(
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
