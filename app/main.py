@@ -1,16 +1,20 @@
-import boto3, os, time
-from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import FastAPI, HTTPException, Request, Query
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
+import time
 from typing import Optional, List, Union
 import asyncio
 from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(), override=False)
 
+# === (ADD) Chatbot wiring imports ===
+from app.api import chat as chat_router
+from app.services import rag
+
+# 개선된 임포트
 from app.core.config import settings, validate_settings
 from app.core.exceptions import (
     AIServiceException, ModelNotLoadedException,
@@ -86,6 +90,13 @@ async def lifespan(app: FastAPI):
         log_model_status("PerformanceAnalyzer", "loaded",
                         loaded=performance_analyzer.is_loaded())
 
+        # === (ADD) Chatbot RAG warmup ===
+        try:
+            rag.warmup()
+            logger.info("🤖 Chatbot RAG warmup 완료")
+        except Exception as e:
+            logger.warning(f"🤖 Chatbot RAG warmup 건너뜀: {e}")
+
         logger.info("✅ AI 서비스 준비 완료!")
 
     except Exception as e:
@@ -114,6 +125,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# === (ADD) Chatbot router mount ===
+app.include_router(chat_router.router)
 
 
 # 전역 예외 처리기
@@ -399,7 +413,7 @@ async def analyze_performance_detailed(request: Union[PanelRequest, List[PanelRe
     except Exception as e:
         logger.error(f"상세 성능 분석 중 예상치 못한 오류: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"상세 분석 처리 오류: {str(e)}")
-        
+
 
 def upload_pdf_to_s3(local_path: str, user_id) -> str:
     """
