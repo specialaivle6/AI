@@ -9,8 +9,8 @@ from typing import Optional, List, Union
 import asyncio
 from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=False)
 
-# 개선된 임포트
 from app.core.config import settings, validate_settings
 from app.core.exceptions import (
     AIServiceException, ModelNotLoadedException,
@@ -41,6 +41,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
 S3_BUCKET = os.getenv("S3_BUCKET", "solar-panel-storage")
+PRESIGN_EXP_SECONDS = int(os.getenv("PRESIGN_EXP_SECONDS", "900"))
 
 s3 = boto3.client("s3", region_name=AWS_REGION)
 
@@ -429,9 +430,6 @@ if __name__ == "__main__":
     )
 
 # --- S3 client ---
-AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
-S3_BUCKET = os.getenv("S3_BUCKET", "solar-panel-storage")
-PRESIGN_EXP_SECONDS = int(os.getenv("PRESIGN_EXP_SECONDS", "900"))
 
 session = boto3.session.Session(
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
