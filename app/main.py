@@ -1,11 +1,14 @@
-from fastapi import FastAPI, HTTPException, Request
+import boto3, os, time
+from botocore.exceptions import BotoCoreError, ClientError
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
-import time
-from typing import Optional
+from typing import Optional, List, Union
+import asyncio
 from datetime import datetime
+from dotenv import load_dotenv, find_dotenv
 
 # 개선된 임포트
 from app.core.config import settings, validate_settings
@@ -16,15 +19,16 @@ from app.core.exceptions import (
 from app.core.logging_config import setup_logging, get_logger, log_api_request, log_model_status
 
 from app.services.damage_analyzer import DamageAnalyzer
+
 from app.services.performance_analyzer import PerformanceAnalyzer
-from app.models.schemas import (
+from app.schemas.schemas import (
     DamageAnalysisRequest,
     DamageAnalysisResponse,
     HealthCheckResponse,
     PanelRequest,
     PerformanceReportResponse,
     PerformanceReportDetailResponse,
-    PerformanceAnalysisResult
+    PerformanceAnalysisResult, ReportItemResult
 )
 from app.utils.image_utils import download_image_from_s3, get_image_info
 from app.utils.report_generator import generate_performance_report
@@ -47,6 +51,8 @@ logger = get_logger(__name__)
 # 전역 변수로 서비스들 관리
 damage_analyzer: Optional[DamageAnalyzer] = None
 performance_analyzer: Optional[PerformanceAnalyzer] = None
+
+load_dotenv(find_dotenv(), override=False)
 
 
 @asynccontextmanager
@@ -243,95 +249,149 @@ async def performance_health_check():
     }
 
 
-@app.post("/api/performance-analysis/report", response_model=PerformanceReportResponse)
-async def generate_performance_report_endpoint(request: PanelRequest):
-    """태양광 패널 성능 예측 및 PDF 리포트 생성"""
-    start_time = time.time()
+from app.schemas.schemas import (
+    # ...
+    PerformanceReportResponse,
+    PerformanceReportDetailResponse,
+    PerformanceAnalysisResult,
+)
 
-    # 서비스 상태 확인
+# 기존 함수 시그니처/데코레이터 교체
+@app.post("/api/performance-analysis/report",
+          response_model=List[PerformanceReportResponse])
+async def generate_performance_report_endpoint(
+    request: List[PanelRequest],
+    address_mode: str = Query("key", pattern="^(key|url|presigned)$")  # ✅ 선택지
+):
     if performance_analyzer is None or not performance_analyzer.is_loaded():
         raise ModelNotLoadedException("PerformanceAnalyzer", settings.performance_model_path)
 
-    try:
-        log_api_request("POST", "/api/performance-analysis/report", request.user_id, request.id)
+    concurrency = getattr(settings, "batch_max_concurrency", 4)
+    sem = asyncio.Semaphore(concurrency)
 
-        # 성능 분석 수행
-        analysis_result = await performance_analyzer.analyze_performance(request)
+    async def run_one(p: PanelRequest) -> PerformanceReportResponse:
+        async with sem:
+            log_api_request("POST", "/api/performance-analysis/report(batch)", p.user_id, p.id)
 
-        # PDF 리포트 생성
-        report_path = generate_performance_report(
-            predicted=analysis_result["predicted_generation"],
-            actual=analysis_result["actual_generation"],
-            status=analysis_result["status"],
-            user_id=request.user_id,
-            lifespan=analysis_result.get("lifespan_months", 0) / 12 if analysis_result.get("lifespan_months") else None,
-            cost=analysis_result.get("estimated_cost")
-        )
+            # 1) 분석
+            analysis = await performance_analyzer.analyze_performance(p)
 
-        s3_key = upload_pdf_to_s3(report_path, request.user_id)
+            # 2) PDF 생성
+            report_path = generate_performance_report(
+                predicted=analysis["predicted_generation"],
+                actual=analysis["actual_generation"],
+                status=analysis["status"],
+                user_id=p.user_id,
+                lifespan=analysis.get("lifespan_months", 0) / 12 if analysis.get("lifespan_months") else None,
+                cost=analysis.get("estimated_cost"),
+            )
 
-        # (선택) 로컬 파일 정리
-        try:
-            os.remove(report_path)
-        except FileNotFoundError:
-            pass
+            # 3) S3 업로드 (키는 {user_id}/{panel_id}_{ts}.pdf 규칙 사용)
+            ts = int(time.time())                                 # 이걸 report_id로 사용
+            key = f"reports/{p.user_id}/{p.id}_{ts}.pdf"
+            item = upload_pdf_to_s3(report_path, key)
 
-        response = PerformanceReportResponse(
-            user_id=request.user_id,
-            address=s3_key,                                  # ✅ 로컬 경로 대신 S3 key로 반환
-            created_at=datetime.now().isoformat()
-        )
+            try:
+                os.remove(report_path)
+            except FileNotFoundError:
+                pass
 
-        return response
+            # 4) 응답 address 선택
+            if address_mode == "url":
+                addr = item.s3Url
+            elif address_mode == "presigned":
+                addr = item.presignedUrl
+            else:
+                addr = item.s3Key
 
-    except AIServiceException:
-        raise
-    except Exception as e:
-        logger.error(f"성능 분석 중 예상치 못한 오류: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"성능 분석 처리 오류: {str(e)}")
+            return PerformanceReportResponse(
+                user_id=p.user_id,
+                address=addr,
+                created_at=datetime.now().isoformat()
+            )
+
+    return await asyncio.gather(*[run_one(p) for p in request])
 
 
-@app.post("/api/performance-analysis/analyze", response_model=PerformanceReportDetailResponse)
-async def analyze_performance_detailed(request: PanelRequest):
-    """상세한 성능 분석 (PDF 생성 없이 분석 결과만 반환)"""
+
+
+@app.post(
+    "/api/performance-analysis/analyze",
+    response_model=Union[PerformanceReportDetailResponse, List[PerformanceReportDetailResponse]],
+)
+async def analyze_performance_detailed(request: Union[PanelRequest, List[PanelRequest]]):
+    """
+    상세한 성능 분석 (PDF 생성 없이 분석 결과만 반환)
+    단건/배치 모두 지원:
+    - 단건 -> PerformanceReportDetailResponse
+    - 배열 -> PerformanceReportDetailResponse[]
+    """
     start_time = time.time()
 
-    # 서비스 상태 확인
     if performance_analyzer is None or not performance_analyzer.is_loaded():
         raise ModelNotLoadedException("PerformanceAnalyzer", settings.performance_model_path)
 
-    try:
-        log_api_request("POST", "/api/performance-analysis/analyze", request.user_id, request.id)
+    # --- 배열 처리 ---
+    if isinstance(request, list):
+        concurrency = getattr(settings, "batch_max_concurrency", 4)
+        sem = asyncio.Semaphore(concurrency)
 
-        # 성능 분석 수행
-        analysis_result = await performance_analyzer.analyze_performance(request)
+        async def run_one(p: PanelRequest) -> PerformanceReportDetailResponse:
+            async with sem:
+                log_api_request("POST", "/api/performance-analysis/analyze(batch)", p.user_id, p.id)
+                ar = await performance_analyzer.analyze_performance(p)
+
+                perf = PerformanceAnalysisResult(
+                    predicted_generation=ar["predicted_generation"],
+                    actual_generation=ar["actual_generation"],
+                    performance_ratio=ar["performance_ratio"],
+                    status=ar["status"],
+                    lifespan_months=ar.get("lifespan_months"),
+                    estimated_cost=ar.get("estimated_cost")
+                )
+
+                return PerformanceReportDetailResponse(
+                    user_id=p.user_id,
+                    panel_id=p.id,
+                    performance_analysis=perf,
+                    report_path="",
+                    created_at=datetime.now().isoformat(),
+                    processing_time_seconds=None,
+                    panel_info=ar.get("panel_info", {}),
+                    environmental_data=ar.get("environmental_data", {})
+                )
+
+        tasks = [run_one(p) for p in request]
+        return await asyncio.gather(*tasks)
+
+    # --- 단건 처리(기존 로직) ---
+    try:
+        p: PanelRequest = request
+        log_api_request("POST", "/api/performance-analysis/analyze", p.user_id, p.id)
+        ar = await performance_analyzer.analyze_performance(p)
         processing_time = time.time() - start_time
+        log_api_request("POST", "/api/performance-analysis/analyze",
+                       p.user_id, p.id, processing_time)
 
-        # 성능 분석 결과 구성
-        performance_analysis = PerformanceAnalysisResult(
-            predicted_generation=analysis_result["predicted_generation"],
-            actual_generation=analysis_result["actual_generation"],
-            performance_ratio=analysis_result["performance_ratio"],
-            status=analysis_result["status"],
-            lifespan_months=analysis_result.get("lifespan_months"),
-            estimated_cost=analysis_result.get("estimated_cost")
+        perf = PerformanceAnalysisResult(
+            predicted_generation=ar["predicted_generation"],
+            actual_generation=ar["actual_generation"],
+            performance_ratio=ar["performance_ratio"],
+            status=ar["status"],
+            lifespan_months=ar.get("lifespan_months"),
+            estimated_cost=ar.get("estimated_cost")
         )
 
-        response = PerformanceReportDetailResponse(
-            user_id=request.user_id,
-            panel_id=request.id,
-            performance_analysis=performance_analysis,
+        return PerformanceReportDetailResponse(
+            user_id=p.user_id,
+            panel_id=p.id,
+            performance_analysis=perf,
             report_path="",
             created_at=datetime.now().isoformat(),
             processing_time_seconds=processing_time,
-            panel_info=analysis_result.get("panel_info", {}),
-            environmental_data=analysis_result.get("environmental_data", {})
+            panel_info=ar.get("panel_info", {}),
+            environmental_data=ar.get("environmental_data", {})
         )
-
-        log_api_request("POST", "/api/performance-analysis/analyze",
-                       request.user_id, request.id, processing_time)
-
-        return response
 
     except AIServiceException:
         raise
@@ -368,3 +428,64 @@ if __name__ == "__main__":
         log_level=settings.log_level.lower()
     )
 
+# --- S3 client ---
+AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
+S3_BUCKET = os.getenv("S3_BUCKET", "solar-panel-storage")
+PRESIGN_EXP_SECONDS = int(os.getenv("PRESIGN_EXP_SECONDS", "900"))
+
+session = boto3.session.Session(
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
+    region_name=AWS_REGION,
+)
+
+s3_client = session.client("s3")
+
+try:
+    sts = session.client("sts")
+    ident = sts.get_caller_identity()
+    ak = os.getenv("AWS_ACCESS_KEY_ID") or ""
+    logger.info(
+        f"AWS credentials OK (acct={ident['Account']}, arn={ident['Arn']}, key=***{ak[-4:]})"
+    )
+except Exception as e:
+    logger.error(f"AWS credentials NOT found/invalid: {e}")
+
+def upload_pdf_to_s3(local_path: str, key: str) -> ReportItemResult:
+    content_type = "application/pdf"
+    size = os.path.getsize(local_path)
+    extra_args = {
+        "ContentType": content_type,
+        "ContentDisposition": f'attachment; filename="{os.path.basename(local_path)}"'
+    }
+    try:
+        resp = s3_client.upload_file(
+            Filename=local_path,
+            Bucket=S3_BUCKET,
+            Key=key,
+            ExtraArgs=extra_args
+        )
+        head = s3_client.head_object(Bucket=S3_BUCKET, Key=key)
+        e_tag = head.get("ETag", "").strip('"')
+
+        s3_url = f"https://{S3_BUCKET}.s3.{os.getenv('AWS_DEFAULT_REGION','ap-northeast-2')}.amazonaws.com/{key}"
+        presigned = s3_client.generate_presigned_url(
+            ClientMethod="get_object",
+            Params={"Bucket": S3_BUCKET, "Key": key},
+            ExpiresIn=PRESIGN_EXP_SECONDS
+        )
+        expires_at = str(int(time.time()) + PRESIGN_EXP_SECONDS)
+
+        return ReportItemResult(
+            id=int(os.path.basename(key).split("_")[0]) if "_" in os.path.basename(key) else -1,
+            s3Key=key,
+            s3Url=s3_url,
+            presignedUrl=presigned,
+            expiresAt=expires_at,
+            contentType=content_type,
+            contentLength=size,
+            eTag=e_tag
+        )
+    except (BotoCoreError, ClientError) as e:
+        raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")

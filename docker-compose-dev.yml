@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  ai-service-dev:
+    build: .
+    image: solar-panel-ai:dev
+    container_name: solar-ai-dev
+    ports:
+      - "8000:8000"
+    environment:
+      - LOG_LEVEL=DEBUG
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+    volumes:
+      # 🔥 실시간 코드 반영
+      - ./app:/app/app
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    restart: unless-stopped
+
+# =====================================================
+# 사용법
+# =====================================================
+# 프로덕션 실행
+# docker-compose up -d
+
+# 개발 환경 실행 (코드 실시간 반영)
+# docker-compose -f docker-compose-dev.yml up -d
+
+# 로그 확인
+# docker-compose logs -f ai-service
+
+# 중지
+# docker-compose down

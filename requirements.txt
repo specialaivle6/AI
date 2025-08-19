@@ -6,13 +6,14 @@ pydantic==2.11.7
 
 # HTTP 클라이언트 (S3 이미지 다운로드용)
 httpx==0.25.2
+boto3==1.40.11
 
 # PyTorch (CPU 버전) - YOLOv8 손상 분석용
 torch==2.2.0
 torchvision==0.17.0
 
 # YOLOv8 및 AI 모델 - 손상 분석용
-ultralytics==8.0.196
+ultralytics==8.3.179
 
 # 이미지 처리
 Pillow==10.1.0

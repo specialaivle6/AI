@@ -70,13 +70,24 @@ class Settings:
         CRITICAL_CLASSES = ['Physical-Damage', 'Electrical-Damage']
         CONTAMINATION_CLASSES = ['Bird-drop', 'Dusty', 'Snow']
 
-        # 우선순위 매핑
+        # 4단계 우선순위 임계값 (Previous 버전 로직 반영)
+        URGENT_CRITICAL_THRESHOLD = 10.0    # Critical 손상 10% 이상 → URGENT
+        HIGH_CRITICAL_THRESHOLD = 5.0       # Critical 손상 5% 이상 → HIGH
+        HIGH_TOTAL_THRESHOLD = 30.0         # Total 손상 30% 이상 → HIGH
+        MEDIUM_TOTAL_THRESHOLD = 15.0       # Total 손상 15% 이상 → MEDIUM
+
+        # 기존 호환성을 위한 임계값 (deprecated)
         PRIORITY_HIGH_THRESHOLD = 10.0
         PRIORITY_MEDIUM_THRESHOLD = 5.0
 
-        # 비용 추정 (원)
-        REPAIR_COST_PER_PERCENT = 50000  # 1% 손상당 수리비
-        REPLACEMENT_COST_BASE = 500000   # 기본 교체비
+        # 비용 추정 (원) - Previous 버전 방식 반영
+        CRITICAL_DAMAGE_COST_PER_PERCENT = 1000   # Critical 손상 1%당 비용
+        CONTAMINATION_COST_PER_PERCENT = 50       # 오염 1%당 청소 비용
+        REPAIR_COST_PER_PERCENT = 50000           # 일반 수리비 (기존 호환성)
+        REPLACEMENT_COST_BASE = 500000            # 기본 교체비
+
+        # 성능 손실 계산 (Previous 버전의 현실적 비율)
+        PERFORMANCE_LOSS_RATIO = 0.8              # 손상 1%당 성능 0.8% 저하
 
     class PerformanceConstants:
         """성능 예측 관련 상수들"""
@@ -106,6 +117,15 @@ class Settings:
     def log_level_int(self) -> int:
         """로그 레벨을 정수로 반환"""
         return getattr(logging, self.log_level.upper(), logging.INFO)
+
+    # s3
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_default_region: str = "ap-northeast-2"
+    s3_bucket: str = "solar-panel-storage"
+
+    class Config:
+        env_file = ".env"
 
 
 # 전역 설정 인스턴스

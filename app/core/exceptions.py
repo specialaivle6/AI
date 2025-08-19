@@ -1,5 +1,5 @@
 """
-커스텀 예외 클래스 정의
+커스텀 예외 클래스 정의 (v3.0 - API 명세서 완전 호환)
 AI 서비스의 다양한 에러 상황을 세분화하여 관리
 """
 
@@ -10,10 +10,10 @@ class AIServiceException(Exception):
     """AI 서비스 기본 예외 클래스"""
 
     def __init__(
-        self,
-        message: str,
-        error_code: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None
+            self,
+            message: str,
+            error_code: Optional[str] = None,
+            details: Optional[Dict[str, Any]] = None
     ):
         self.message = message
         self.error_code = error_code
@@ -21,30 +21,43 @@ class AIServiceException(Exception):
         super().__init__(self.message)
 
 
+# === 모델 관련 예외 ===
+
 class ModelNotLoadedException(AIServiceException):
     """AI 모델이 로드되지 않았을 때 발생하는 예외"""
 
-    def __init__(self, model_name: str, model_path: str):
-        message = f"{model_name} 모델이 로드되지 않았습니다"
-        details = {"model_path": model_path}
+    def __init__(self, ai_model_name: str, model_path: str):
+        message = f"{ai_model_name} AI 모델이 로드되지 않았습니다"
+        details = {"model_path": model_path, "ai_model_name": ai_model_name}
         super().__init__(message, "MODEL_NOT_LOADED", details)
 
 
 class ModelLoadFailedException(AIServiceException):
     """AI 모델 로딩 실패 시 발생하는 예외"""
 
-    def __init__(self, model_name: str, model_path: str, reason: str):
-        message = f"{model_name} 모델 로딩 실패: {reason}"
-        details = {"model_path": model_path, "reason": reason}
+    def __init__(self, ai_model_name: str, model_path: str, reason: str):
+        message = f"{ai_model_name} AI 모델 로딩 실패: {reason}"
+        details = {"model_path": model_path, "reason": reason, "ai_model_name": ai_model_name}
         super().__init__(message, "MODEL_LOAD_FAILED", details)
 
 
-class ImageProcessingException(AIServiceException):
-    """이미지 처리 관련 예외"""
+# === 이미지 처리 관련 예외 ===
 
-    def __init__(self, message: str, image_info: Optional[Dict[str, Any]] = None):
+class ImageProcessingException(AIServiceException):
+    """이미지 처리 관련 기본 예외"""
+
+    def __init__(self, message: str, error_code: str, image_info: Optional[Dict[str, Any]] = None):
         details = {"image_info": image_info} if image_info else {}
-        super().__init__(message, "IMAGE_PROCESSING_ERROR", details)
+        super().__init__(message, error_code, details)
+
+
+class InvalidImageUrlException(ImageProcessingException):
+    """잘못된 이미지 URL 형식 예외 (API 명세서 대응)"""
+
+    def __init__(self, url: str, reason: str = "URL 형식이 올바르지 않습니다"):
+        message = f"잘못된 이미지 URL: {reason}"
+        image_info = {"url": url, "reason": reason}
+        super().__init__(message, "INVALID_IMAGE_URL", image_info)
 
 
 class ImageDownloadException(ImageProcessingException):
@@ -52,8 +65,8 @@ class ImageDownloadException(ImageProcessingException):
 
     def __init__(self, url: str, reason: str):
         message = f"이미지 다운로드 실패: {reason}"
-        details = {"url": url, "reason": reason}
-        super().__init__(message, details)
+        image_info = {"url": url, "reason": reason}
+        super().__init__(message, "IMAGE_DOWNLOAD_FAILED", image_info)
 
 
 class ImageValidationException(ImageProcessingException):
@@ -61,8 +74,30 @@ class ImageValidationException(ImageProcessingException):
 
     def __init__(self, reason: str, file_info: Optional[Dict[str, Any]] = None):
         message = f"이미지 검증 실패: {reason}"
-        super().__init__(message, file_info)
+        super().__init__(message, "INVALID_IMAGE_FORMAT", file_info)
 
+
+class ImageTooLargeException(ImageProcessingException):
+    """이미지 크기 초과 예외 (API 명세서 대응)"""
+
+    def __init__(self, file_size: int, max_size: int = 20971520):  # 20MB
+        message = f"이미지 크기가 너무 큽니다: {file_size}bytes (최대: {max_size}bytes)"
+        image_info = {"file_size": file_size, "max_size": max_size}
+        super().__init__(message, "IMAGE_TOO_LARGE", image_info)
+
+
+# === 입력 검증 관련 예외 ===
+
+class ValidationException(AIServiceException):
+    """입력 데이터 검증 실패 예외 (API 명세서 대응)"""
+
+    def __init__(self, field_name: str, value: Any, reason: str):
+        message = f"입력 검증 실패 - {field_name}: {reason}"
+        details = {"field": field_name, "value": str(value), "reason": reason}
+        super().__init__(message, "VALIDATION_ERROR", details)
+
+
+# === 분석 관련 예외 ===
 
 class AnalysisException(AIServiceException):
     """AI 분석 관련 예외"""
@@ -89,6 +124,8 @@ class PerformanceAnalysisException(AnalysisException):
         super().__init__("성능 예측", message, input_info)
 
 
+# === 리포트 생성 관련 예외 ===
+
 class ReportGenerationException(AIServiceException):
     """리포트 생성 실패 예외"""
 
@@ -97,6 +134,8 @@ class ReportGenerationException(AIServiceException):
         details = {"report_type": report_type}
         super().__init__(full_message, "REPORT_GENERATION_FAILED", details)
 
+
+# === 시스템 관련 예외 ===
 
 class ConfigurationException(AIServiceException):
     """설정 관련 예외"""
@@ -124,21 +163,54 @@ class TimeoutException(AIServiceException):
         super().__init__(message, "TIMEOUT_ERROR", details)
 
 
-# 예외를 HTTP 상태 코드로 매핑
+class ServiceUnavailableException(AIServiceException):
+    """서비스 일시 중단 예외 (API 명세서 대응)"""
+
+    def __init__(self, service_name: str, reason: str):
+        message = f"{service_name} 서비스가 일시적으로 사용할 수 없습니다: {reason}"
+        details = {"service_name": service_name, "reason": reason}
+        super().__init__(message, "SERVICE_UNAVAILABLE", details)
+
+
+# === HTTP 상태 코드 매핑 (API 명세서와 일치) ===
+
 EXCEPTION_STATUS_MAPPING = {
-    ModelNotLoadedException: 503,  # Service Unavailable
-    ModelLoadFailedException: 503,  # Service Unavailable
-    ImageDownloadException: 400,   # Bad Request
-    ImageValidationException: 400, # Bad Request
-    DamageAnalysisException: 500,  # Internal Server Error
-    PerformanceAnalysisException: 500,  # Internal Server Error
-    ReportGenerationException: 500,  # Internal Server Error
-    ConfigurationException: 500,   # Internal Server Error
-    ResourceException: 503,        # Service Unavailable
-    TimeoutException: 504,         # Gateway Timeout
+    # 400 Bad Request
+    InvalidImageUrlException: 400,
+    ImageDownloadException: 400,
+    ImageValidationException: 400,
+    ImageTooLargeException: 400,
+
+    # 422 Unprocessable Entity
+    ValidationException: 422,
+
+    # 500 Internal Server Error
+    DamageAnalysisException: 500,
+    PerformanceAnalysisException: 500,
+    ReportGenerationException: 500,
+    ConfigurationException: 500,
+    AnalysisException: 500,
+    ModelLoadFailedException: 500,
+
+    # 503 Service Unavailable
+    ModelNotLoadedException: 503,
+    ResourceException: 503,
+    ServiceUnavailableException: 503,
+
+    # 504 Gateway Timeout
+    TimeoutException: 504,
 }
 
 
 def get_http_status_code(exception: Exception) -> int:
     """예외 타입에 따른 HTTP 상태 코드 반환"""
     return EXCEPTION_STATUS_MAPPING.get(type(exception), 500)
+
+
+def get_error_details(exception: AIServiceException) -> Dict[str, Any]:
+    """API 응답용 에러 상세 정보 생성"""
+    return {
+        "error": exception.error_code or "UNKNOWN_ERROR",
+        "message": exception.message,
+        "details": exception.details
+    }

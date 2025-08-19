@@ -11,8 +11,20 @@ from functools import lru_cache
 import pandas as pd
 from geopy.distance import geodesic
 import logging
+from dataclasses import dataclass
+import datetime
 
 logger = logging.getLogger(__name__)
+
+# === 비용 추정 데이터 클래스 ===
+
+@dataclass
+class CostEstimate:
+    """비용 추정 결과를 담는 데이터 클래스"""
+    immediate_cost: int                # '지금' 교체 총비용 (degraded)
+    future_cost_year: Optional[int]    # 정상/우수 예상 교체연도
+    future_cost_total: Optional[int]   # 미래 교체 비용
+
 
 # === 데이터 파일 경로 유틸리티 ===
 
@@ -168,11 +180,31 @@ def get_model_specs(model_name: str) -> Optional[Dict[str, float]]:
 
 # 기본 가격표
 _DEFAULT_PRICES: Dict[str, Dict[str, int]] = {
-    "Q.PEAK DUO ML-G11.5 / BFG 510W": {"base": 290_000, "disposal": 20_000, "labor": 30_000},
-    "Q.PEAK DUO MS-G10.d/BGT 230W": {"base": 220_000, "disposal": 20_000, "labor": 30_000},
-    "Q.PEAK DUO MS-G10.d/BGT 235W": {"base": 225_000, "disposal": 20_000, "labor": 30_000},
-    "Q.PEAK DUO MS-G10.d/BGT 240W": {"base": 230_000, "disposal": 20_000, "labor": 30_000},
-    "DEFAULT": {"base": 250_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO ML-G11.5 / BFG 510W": {"base": 290_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO MS-G10.d/BGT 230W":    {"base": 220_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO MS-G10.d/BGT 235W":    {"base": 225_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO MS-G10.d/BGT 240W":    {"base": 230_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO XL-G11S.3 / BFG 590W": {"base": 300_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO XL-G11S.3 / BFG 595W": {"base": 305_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO XL-G11S.3 / BFG 600W": {"base": 310_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO XL-G11S.7 / BFG 585W": {"base": 295_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO XL-G11S.7 / BFG 590W": {"base": 300_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO XL-G11S.7 / BFG 595W": {"base": 305_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO XL-G11S.7 / BFG 600W": {"base": 310_000, "disposal": 20_000, "labor": 30_000},
+    "Q.PEAK DUO XL-G11S.7 / BFG 605W": {"base": 315_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2.13/BFG 620W":        {"base": 320_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2.13/BFG 625W":        {"base": 325_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2.13/BFG 630W":        {"base": 330_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2.13/BFG 635W":        {"base": 335_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2.7 / BFG 610W":       {"base": 315_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2.7 / BFG 620W":       {"base": 320_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2.7 / BFG 625W":       {"base": 325_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2.7 / BFG 630W":       {"base": 330_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2.7 / BFG 635W":       {"base": 335_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2R.9 / BFG 635W":      {"base": 335_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2R.9 / BFG 640W":      {"base": 340_000, "disposal": 20_000, "labor": 30_000},
+    "Q.TRON XL-G2R.9 / BFG 645W":      {"base": 345_000, "disposal": 20_000, "labor": 30_000},
+    "DEFAULT":                          {"base": 250_000, "disposal": 20_000, "labor": 30_000},
 }
 
 @lru_cache(maxsize=1)
@@ -202,15 +234,50 @@ def _load_price_table() -> Dict[str, Dict[str, int]]:
 
     return _DEFAULT_PRICES
 
+def _normalize_status(status: str) -> str:
+    """상태 문자열을 정규화"""
+    s = (status or "").lower()
+    if "degraded" in s:
+        return "degraded"
+    if "excellent" in s:
+        return "excellent"
+    return "normal"
+
+def _lookup_cost(model_name: str) -> Dict[str, int]:
+    """모델명으로 비용 정보 조회"""
+    table = _load_price_table()
+    return table.get(model_name, table["DEFAULT"])
+
+def estimate_cost(model_name: str, status: str, lifespan_years: Optional[float] = None) -> CostEstimate:
+    """
+    new_service와 동일한 고급 비용 계산 로직
+
+    Args:
+        model_name: 패널 모델명
+        status: 현재 상태 (Excellent/Healthy/Degraded 등)
+        lifespan_years: 예상 수명 (년)
+
+    Returns:
+        CostEstimate: 즉시비용, 미래교체연도, 미래교체비용
+    """
+    kind = _normalize_status(status)
+    costs = _lookup_cost(model_name)
+    total = costs["base"] + costs["disposal"] + costs["labor"]
+
+    # 성능 저하 시 즉시 교체 필요
+    if kind == "degraded":
+        return CostEstimate(immediate_cost=total, future_cost_year=None, future_cost_total=None)
+
+    # 수명 정보가 없으면 미래 예측 불가
+    if lifespan_years is None:
+        return CostEstimate(immediate_cost=0, future_cost_year=None, future_cost_total=None)
+
+    # 정상/우수 상태: 미래 교체 연도 및 비용 계산
+    year = datetime.date.today().year + int(lifespan_years)
+    return CostEstimate(immediate_cost=0, future_cost_year=year, future_cost_total=total)
+
+# 기존 함수는 하위 호환성을 위해 유지
 def estimate_panel_cost(model_name: str, status: str) -> int:
-    """패널 교체 비용 추정"""
-    price_table = _load_price_table()
-    costs = price_table.get(model_name, price_table["DEFAULT"])
-
-    total_cost = costs["base"] + costs["disposal"] + costs["labor"]
-
-    # 상태에 따른 비용 적용
-    if "degraded" in status.lower():
-        return total_cost
-    else:
-        return 0  # 정상/우수 상태는 교체 불필요
+    """패널 교체 비용 추정 (기존 호환성 유지)"""
+    result = estimate_cost(model_name, status)
+    return result.immediate_cost

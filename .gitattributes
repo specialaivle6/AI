@@ -1,0 +1,51 @@
+# .gitattributes
+# 바이너리 파일 보호 - Git이 텍스트로 오인하지 않도록
+
+# AI 모델 파일들 (바이너리)
+*.pt binary
+*.pkl binary
+*.pth binary
+*.onnx binary
+*.tflite binary
+
+# 폰트 파일들 (바이너리)
+*.ttf binary
+*.otf binary
+*.ttc binary
+*.woff binary
+*.woff2 binary
+
+# 이미지 파일들 (바이너리)
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.bmp binary
+*.tiff binary
+*.webp binary
+
+# 압축 파일들 (바이너리)
+*.zip binary
+*.tar.gz binary
+*.tar binary
+*.gz binary
+
+# Office 문서들 (바이너리)
+*.xlsx binary
+*.xls binary
+*.docx binary
+*.pdf binary
+
+# 기타 바이너리
+*.so binary
+*.dll binary
+*.exe binary
+
+# 텍스트 파일들은 명시적으로 text로 설정
+*.py text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.csv text eol=lf

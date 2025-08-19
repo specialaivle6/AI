@@ -16,7 +16,7 @@ Version: 3.0.0 - Integrated AI Services
 
 from .core import settings, setup_logging, get_logger
 from .services import DamageAnalyzer, PerformanceAnalyzer
-from .models import (
+from .schemas import (
     DamageAnalysisRequest, DamageAnalysisResponse,
     PanelRequest, PerformanceReportResponse
 )
