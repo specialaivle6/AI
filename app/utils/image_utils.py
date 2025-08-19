@@ -22,12 +22,12 @@ from app.core.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-async def download_image_from_s3(s3_url: str) -> bytes:
+async def download_image_from_s3(s3_key: str) -> bytes:
     """
     S3 URL에서 이미지를 다운로드합니다. (boto3 사용)
 
     Args:
-        s3_url: S3 이미지 URL (s3://bucket/key 또는 https://... 형식)
+        s3_key: S3 객체 key (예: "images/processed/Physical_Damge_281_jpg.rf.xxx.jpg")
 
     Returns:
         bytes: 이미지 바이트 데이터
@@ -37,11 +37,13 @@ async def download_image_from_s3(s3_url: str) -> bytes:
         TimeoutException: 타임아웃 시
     """
     try:
-        logger.info(f"S3 이미지 다운로드 시작: {s3_url}")
+        logger.info(f"S3 이미지 다운로드 시작: {s3_key}")
 
         # S3 URL 파싱
-        bucket, key = _parse_s3_url(s3_url)
-        logger.info(f"S3 파싱 결과 - Bucket: {bucket}, Key: {key}")
+        # bucket, key = _parse_s3_url(s3_url)
+        bucket, key = settings.s3_bucket, s3_key
+        s3_url = f"s3://{bucket}/{key}"
+        # logger.info(f"S3 파싱 결과 - Bucket: {bucket}, Key: {key}")
 
         # boto3 클라이언트 생성
         s3_client = boto3.client('s3')
@@ -76,12 +78,12 @@ async def download_image_from_s3(s3_url: str) -> bytes:
         return image_bytes
 
     except NoCredentialsError:
-        raise ImageDownloadException(s3_url, "AWS 자격증명이 설정되지 않았습니다")
+        raise ImageDownloadException(s3_key, "AWS 자격증명이 설정되지 않았습니다")
     except (ImageValidationException, ImageDownloadException):
         raise
     except Exception as e:
         logger.error(f"예상치 못한 S3 다운로드 오류: {e}")
-        raise ImageDownloadException(s3_url, f"알 수 없는 오류: {str(e)}")
+        raise ImageDownloadException(s3_key, f"알 수 없는 오류: {str(e)}")
 
 
 def _parse_s3_url(s3_url: str) -> Tuple[str, str]:

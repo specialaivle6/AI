@@ -50,7 +50,7 @@ class DamageAnalysisRequest(BaseModel):
     """손상 분석 요청 (백엔드에서 AI 서버로)"""
     panel_id: int
     user_id: UUID
-    panel_imageurl: str = Field(..., description="S3 이미지 URL")
+    panel_imageurl: str = Field(..., description="S3 이미지 key (예: images/processed/xxx.jpg)")
 
 
 class DetectionDetail(BaseModel):
