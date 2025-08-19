@@ -1,59 +1,69 @@
-# FastAPI 및 웹 서버 - 최신 버전으로 통일
-fastapi==0.116.1
-uvicorn[standard]==0.35.0
-python-multipart==0.0.6
-pydantic==2.11.7
+# ===== Python 3.12 호환 + ChromaDB 해결 =====
 
-# HTTP 클라이언트 (S3 이미지 다운로드용)
-httpx==0.25.2
-boto3==1.40.11
+# 방법 1: 최신 ChromaDB로 강제 해결 시도
+# FastAPI 및 웹 서버 - 최신 버전 유지
+fastapi>=0.100.0,<0.120.0  # 유연한 범위
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.6
+pydantic>=2.0.0,<3.0.0  # V2 유지 시도
 
-# PyTorch (CPU 버전) - YOLOv8 손상 분석용
+# HTTP 클라이언트
+httpx>=0.25.0
+boto3>=1.40.0
+
+# PyTorch (CPU 버전) - 변경 없음
 torch==2.2.0
 torchvision==0.17.0
 
-# YOLOv8 및 AI 모델 - 손상 분석용
+# YOLOv8 및 AI 모델 - 8.3 버전 유지
 ultralytics==8.3.179
 
 # 이미지 처리
-Pillow==10.1.0
-opencv-python==4.8.1.78
+Pillow>=10.0.0
+opencv-python>=4.8.0
 
-# 시각화 및 차트 - 최신 버전으로 업데이트
-matplotlib==3.10.5
+# 시각화 및 차트
+matplotlib>=3.8.0
 
-# 데이터 처리 - numpy 1.x로 호환성 확보
+# 데이터 처리
 numpy>=1.24.0,<2.0.0
-pandas==2.3.1
+pandas>=2.0.0
 
-# ML 모델링 - new_service 성능 예측용
-scikit-learn==1.7.1
-xgboost==3.0.4
-joblib==1.5.1
+# ML 모델링
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+joblib>=1.3.0
 
-# 지리 정보 처리 - new_service 지역 매핑용
-geopy==2.4.1
+# 지리 정보 처리
+geopy>=2.3.0
 
-# PDF 리포트 생성 - new_service 리포트용
-reportlab==4.4.3
+# PDF 리포트 생성
+reportlab>=4.0.0
 
-# 파일 처리 - Excel 스펙 파일 읽기용
-openpyxl==3.1.5
+# 파일 처리
+openpyxl>=3.1.0
 
 # 보안 및 인증
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.0
 
 # 로깅 및 모니터링
-structlog==23.2.0
+structlog>=23.0.0
 
-# 환경 설정
-python-dotenv==1.0.0
-pydantic-settings==2.1.0
+# 환경 설정 - 최소 버전
+python-dotenv>=1.0.0
+pydantic-settings>=2.0.0  # 실제 존재하는 최소 버전
 
 # 테스트
-pytest==7.4.3
-pytest-asyncio==0.21.1
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
 
-openai==1.45.0
-chromadb==0.4.24
+# OpenAI - 최신 버전 유지
+openai>=1.40.0
+
+# ChromaDB - 최신 버전으로 Pydantic 2.x 호환 시도
+chromadb>=0.5.0
+
+# 챗봇 관련 - 최신 호환 버전
+langchain>=0.1.0
+tiktoken>=0.5.0
