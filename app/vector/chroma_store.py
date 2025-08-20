@@ -29,14 +29,14 @@ class ChromaStore:
         )
 
     def query(self, query_embedding: List[float], k: int = 4):
-        res = self.collection.query(
+        results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=k,
             include=["distances", "metadatas", "documents"],
         )
         out = []
-        if res and res.get("documents"):
-            for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
+        if results and results.get("documents"):
+            for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
                 out.append({"content": doc, "metadata": meta, "distance": float(dist)})
         return out
 

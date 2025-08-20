@@ -3,6 +3,16 @@ from pathlib import Path
 from typing import List, Dict, Any
 import logging
 
+# .env 파일 자동 로드
+try:
+    from dotenv import load_dotenv
+    # 프로젝트 루트의 .env 파일 로드
+    env_path = Path(__file__).parent.parent.parent / ".env"
+    load_dotenv(env_path)
+except ImportError:
+    # python-dotenv가 설치되지 않은 경우 경고
+    print("Warning: python-dotenv not installed. Environment variables from .env file will not be loaded.")
+
 
 class Settings:
     """애플리케이션 설정 클래스"""
@@ -56,8 +66,8 @@ class Settings:
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.1"))
 
     # 게이트(원하면 환경변수로 조정)
-    MAX_DISTANCE_TO_ANSWER: float = float(os.getenv("MAX_DISTANCE_TO_ANSWER", "0.65"))
-    MIN_CONFIDENCE_TO_ANSWER: float = float(os.getenv("MIN_CONFIDENCE_TO_ANSWER", "0.35"))
+    MAX_DISTANCE_TO_ANSWER: float = float(os.getenv("MAX_DISTANCE_TO_ANSWER", "0.85"))
+    MIN_CONFIDENCE_TO_ANSWER: float = float(os.getenv("MIN_CONFIDENCE_TO_ANSWER", "0.15"))
 
     ALLOWED_KEYWORDS = [
         "태양광", "패널", "폐패널", "EPR", "재활용", "수거", "인버터",
@@ -142,10 +152,10 @@ class Settings:
         return getattr(logging, self.log_level.upper(), logging.INFO)
 
     # s3
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-    aws_default_region: str = "ap-northeast-2"
-    s3_bucket: str = "solar-panel-storage"
+    aws_access_key_id: str = os.getenv("AWS_ACCESS_KEY_ID", "")
+    aws_secret_access_key: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+    aws_default_region: str = os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2")
+    s3_bucket: str = os.getenv("S3_BUCKET", "solar-panel-storage")
 
     class Config:
         env_file = ".env"
