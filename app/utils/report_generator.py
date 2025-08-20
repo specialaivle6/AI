@@ -416,18 +416,33 @@ def generate_report(predicted: float, actual: float, status: str, user_id: str,
 
     # 0) 패널 정보 요약
     story.append(Paragraph("패널 정보 요약", styles["KR-H2"]))
+
     extras = extras or {}
-    snap = extras.get("feature_snapshot") or {}
-    panel_info = extras.get("panel_info") or {}
+
+    # extras가 {"panel_info": {...}} 형태면 그대로, 아니면 평평한 패널 dict로 간주
+    if isinstance(extras, dict) and ("panel_info" in extras or "feature_snapshot" in extras or "top_impacts" in extras):
+        snap = extras.get("feature_snapshot") or {}
+        panel_info = extras.get("panel_info") or {}
+    else:
+        snap = {}
+        panel_info = extras  # ← 평평한 dict를 panel_info로 사용
 
     num = snap.get("numeric", {}) or {}
     cat = snap.get("categorical", {}) or {}
 
     model_name = panel_info.get("model_name") or cat.get("Panel_Model", "")
+    install = (panel_info.get("installation") or {})
+    install_date = install.get("date", "")
+    install_angle = install.get("angle", num.get("Install_Angle", ""))
+    install_dir = install.get("direction", cat.get("Install_Direction", ""))
+
+    # region 우선순위: categorical → 좌표 문자열 → 빈값
     region = cat.get("Region", "")
-    install_date = (panel_info.get("installation") or {}).get("date", "")
-    install_angle = (panel_info.get("installation") or {}).get("angle", num.get("Install_Angle", ""))
-    install_dir = (panel_info.get("installation") or {}).get("direction", cat.get("Install_Direction", ""))
+    if not region:
+        loc = install.get("location") or {}
+        lat, lon = loc.get("latitude"), loc.get("longitude")
+        if lat is not None and lon is not None:
+            region = f"{lat}, {lon}"
 
     rows_info = [
         ["패널 모델", model_name],
@@ -551,11 +566,11 @@ def generate_report(predicted: float, actual: float, status: str, user_id: str,
 # 기존 호환성을 위한 별칭 함수들
 def generate_performance_report(predicted: float, actual: float, status: str,
                               user_id: str, lifespan: Optional[float] = None,
-                              cost: Optional[int] = None) -> str:
+                              cost: Optional[int] = None, extras: Optional[Dict[str, Any]] = None,) -> str:
     """기존 호환성을 위한 래퍼 함수"""
     # int cost를 CostEstimate로 변환
     cost_estimate = None
     if cost is not None:
         cost_estimate = CostEstimate(immediate_cost=cost, future_cost_year=None, future_cost_total=None)
 
-    return generate_report(predicted, actual, status, user_id, lifespan, cost_estimate)
+    return generate_report(predicted, actual, status, user_id, lifespan, cost_estimate, extras)

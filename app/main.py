@@ -1,21 +1,16 @@
+import boto3, os, time
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
-import time
 from typing import Optional, List, Union
 import asyncio
 from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
-
 load_dotenv(find_dotenv(), override=False)
 
-# === (ADD) Chatbot wiring imports ===
-from app.api import chat as chat_router
-from app.services import rag
-
-# 개선된 임포트
 from app.core.config import settings, validate_settings
 from app.core.exceptions import (
     AIServiceException, ModelNotLoadedException,
@@ -82,21 +77,14 @@ async def lifespan(app: FastAPI):
         damage_analyzer = DamageAnalyzer()
         await damage_analyzer.initialize()
         log_model_status("DamageAnalyzer", "loaded",
-                         loaded=damage_analyzer.is_loaded())
+                        loaded=damage_analyzer.is_loaded())
 
         # 성능 분석기 초기화
         log_model_status("PerformanceAnalyzer", "loading", path=settings.performance_model_path)
         performance_analyzer = PerformanceAnalyzer()
         await performance_analyzer.initialize()
         log_model_status("PerformanceAnalyzer", "loaded",
-                         loaded=performance_analyzer.is_loaded())
-
-        # === (ADD) Chatbot RAG warmup ===
-        try:
-            rag.warmup()
-            logger.info("🤖 Chatbot RAG warmup 완료")
-        except Exception as e:
-            logger.warning(f"🤖 Chatbot RAG warmup 건너뜀: {e}")
+                        loaded=performance_analyzer.is_loaded())
 
         logger.info("✅ AI 서비스 준비 완료!")
 
@@ -126,9 +114,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# === (ADD) Chatbot router mount ===
-app.include_router(chat_router.router)
 
 
 # 전역 예외 처리기
@@ -210,7 +195,7 @@ async def damage_health_check():
 
 @app.post("/api/damage-analysis/analyze", response_model=DamageAnalysisResponse)
 async def analyze_panel_damage_from_s3(request: DamageAnalysisRequest):
-    """백엔드에서 요청받은 S3 key로 패널 손상 분석 수행"""
+    """백엔드에서 요청받은 S3 URL로 패널 손상 분석 수행"""
     start_time = time.time()
 
     # 서비스 상태 확인
@@ -219,13 +204,11 @@ async def analyze_panel_damage_from_s3(request: DamageAnalysisRequest):
 
     try:
         log_api_request("POST", "/api/damage-analysis/analyze",
-                        str(request.user_id), request.panel_id)
+                       str(request.user_id), request.panel_id)
 
         # S3에서 이미지 다운로드
         image_data = await download_image_from_s3(request.panel_imageurl)
-
-        full_s3_url = f"s3://{settings.s3_bucket}/{request.panel_imageurl}"
-        image_info = get_image_info(image_data, full_s3_url)
+        image_info = get_image_info(image_data, request.panel_imageurl)
 
         # AI 분석 수행
         analysis_result = await damage_analyzer.analyze_damage(image_data)
@@ -244,7 +227,7 @@ async def analyze_panel_damage_from_s3(request: DamageAnalysisRequest):
         )
 
         log_api_request("POST", "/api/damage-analysis/analyze",
-                        str(request.user_id), request.panel_id, processing_time)
+                       str(request.user_id), request.panel_id, processing_time)
 
         return response
 
@@ -274,13 +257,12 @@ from app.schemas.schemas import (
     PerformanceAnalysisResult,
 )
 
-
 # 기존 함수 시그니처/데코레이터 교체
 @app.post("/api/performance-analysis/report",
           response_model=List[PerformanceReportResponse])
 async def generate_performance_report_endpoint(
-        request: List[PanelRequest],
-        address_mode: str = Query("key", pattern="^(key|url|presigned)$")  # ✅ 선택지
+    request: List[PanelRequest],
+    address_mode: str = Query("key", pattern="^(key|url|presigned)$")
 ):
     if performance_analyzer is None or not performance_analyzer.is_loaded():
         raise ModelNotLoadedException("PerformanceAnalyzer", settings.performance_model_path)
@@ -293,25 +275,29 @@ async def generate_performance_report_endpoint(
             log_api_request("POST", "/api/performance-analysis/report(batch)", p.user_id, p.id)
 
             # 1) 분석
-            analysis = await performance_analyzer.analyze_performance(p)
+            analysis = await performance_analyzer.analyze_with_report(p)
 
-            # 2) PDF 생성
-            report_path = generate_performance_report(
-                predicted=analysis["predicted_generation"],
-                actual=analysis["actual_generation"],
-                status=analysis["status"],
-                user_id=p.user_id,
-                lifespan=analysis.get("lifespan_months", 0) / 12 if analysis.get("lifespan_months") else None,
-                cost=analysis.get("estimated_cost"),
-            )
+            # # 2) PDF 생성
+            # report_path = generate_performance_report(
+            #     predicted=analysis["predicted_generation"],
+            #     actual=analysis["actual_generation"],
+            #     status=analysis["status"],
+            #     user_id=p.user_id,
+            #     lifespan=analysis.get("lifespan_months", 0) / 12 if analysis.get("lifespan_months") else None,
+            #     cost=analysis.get("estimated_cost"),
+            #     extras={"panel_info": analysis["panel_info"]}
+            # )
+            print("#######################로그시작################################")
+            print(analysis)
+            print("#######################로그끝##################################")
 
             # 3) S3 업로드 (키는 {user_id}/{panel_id}_{ts}.pdf 규칙 사용)
-            ts = int(time.time())  # 이걸 report_id로 사용
+            ts = int(time.time())                                 # 이걸 report_id로 사용
             key = f"reports/{p.user_id}/{p.id}_{ts}.pdf"
-            item = upload_pdf_to_s3(report_path, key)
+            item = upload_pdf_to_s3(analysis["report_path"], key)
 
             try:
-                os.remove(report_path)
+                os.remove(analysis["report_path"])
             except FileNotFoundError:
                 pass
 
@@ -330,6 +316,8 @@ async def generate_performance_report_endpoint(
             )
 
     return await asyncio.gather(*[run_one(p) for p in request])
+
+
 
 
 @app.post(
@@ -388,7 +376,7 @@ async def analyze_performance_detailed(request: Union[PanelRequest, List[PanelRe
         ar = await performance_analyzer.analyze_performance(p)
         processing_time = time.time() - start_time
         log_api_request("POST", "/api/performance-analysis/analyze",
-                        p.user_id, p.id, processing_time)
+                       p.user_id, p.id, processing_time)
 
         perf = PerformanceAnalysisResult(
             predicted_generation=ar["predicted_generation"],
@@ -415,26 +403,7 @@ async def analyze_performance_detailed(request: Union[PanelRequest, List[PanelRe
     except Exception as e:
         logger.error(f"상세 성능 분석 중 예상치 못한 오류: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"상세 분석 처리 오류: {str(e)}")
-
-
-def upload_pdf_to_s3(local_path: str, user_id) -> str:
-    """
-    로컬 PDF를 S3에 업로드하고 S3 object key를 반환.
-    파일명 충돌 방지를 위해 timestamp 포함.
-    """
-    file_name = os.path.basename(local_path) or "report.pdf"
-    ts = int(time.time())
-    key = f"reports/{user_id}/{ts}.pdf"
-    extra = {
-        "ContentType": "application/pdf",
-        "ContentDisposition": f'attachment; filename="{file_name}"'
-    }
-    try:
-        s3.upload_file(Filename=local_path, Bucket=S3_BUCKET, Key=key, ExtraArgs=extra)
-        return key
-    except (BotoCoreError, ClientError) as e:
-        raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
-
+        
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -466,7 +435,6 @@ try:
 except Exception as e:
     logger.error(f"AWS credentials NOT found/invalid: {e}")
 
-
 def upload_pdf_to_s3(local_path: str, key: str) -> ReportItemResult:
     content_type = "application/pdf"
     size = os.path.getsize(local_path)
@@ -484,7 +452,7 @@ def upload_pdf_to_s3(local_path: str, key: str) -> ReportItemResult:
         head = s3_client.head_object(Bucket=S3_BUCKET, Key=key)
         e_tag = head.get("ETag", "").strip('"')
 
-        s3_url = f"https://{S3_BUCKET}.s3.{os.getenv('AWS_DEFAULT_REGION', 'ap-northeast-2')}.amazonaws.com/{key}"
+        s3_url = f"https://{S3_BUCKET}.s3.{os.getenv('AWS_DEFAULT_REGION','ap-northeast-2')}.amazonaws.com/{key}"
         presigned = s3_client.generate_presigned_url(
             ClientMethod="get_object",
             Params={"Bucket": S3_BUCKET, "Key": key},
