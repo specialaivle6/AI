@@ -275,31 +275,29 @@ async def generate_performance_report_endpoint(
             log_api_request("POST", "/api/performance-analysis/report(batch)", p.user_id, p.id)
 
             # 1) 분석
-            analysis = await performance_analyzer.analyze_performance(p)
+            analysis = await performance_analyzer.analyze_with_report(p)
 
-            # 2) PDF 생성
-            report_path = generate_performance_report(
-                predicted=analysis["predicted_generation"],
-                actual=analysis["actual_generation"],
-                status=analysis["status"],
-                user_id=p.user_id,
-                lifespan=analysis.get("lifespan_months", 0) / 12 if analysis.get("lifespan_months") else None,
-                cost=analysis.get("estimated_cost"),
-                extras={"panel_info": analysis["panel_info"]}
-            )
+            # # 2) PDF 생성
+            # report_path = generate_performance_report(
+            #     predicted=analysis["predicted_generation"],
+            #     actual=analysis["actual_generation"],
+            #     status=analysis["status"],
+            #     user_id=p.user_id,
+            #     lifespan=analysis.get("lifespan_months", 0) / 12 if analysis.get("lifespan_months") else None,
+            #     cost=analysis.get("estimated_cost"),
+            #     extras={"panel_info": analysis["panel_info"]}
+            # )
             print("#######################로그시작################################")
-            print(report_path)
-            print("######################analysis, user_id##########################")
-            print(analysis["panel_info"])
+            print(analysis)
             print("#######################로그끝##################################")
 
             # 3) S3 업로드 (키는 {user_id}/{panel_id}_{ts}.pdf 규칙 사용)
             ts = int(time.time())                                 # 이걸 report_id로 사용
             key = f"reports/{p.user_id}/{p.id}_{ts}.pdf"
-            item = upload_pdf_to_s3(report_path, key)
+            item = upload_pdf_to_s3(analysis["report_path"], key)
 
             try:
-                os.remove(report_path)
+                os.remove(analysis["report_path"])
             except FileNotFoundError:
                 pass
 
