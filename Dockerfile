@@ -3,7 +3,7 @@
 # 목표: 안정성 우선, 폰트 문제 해결, 권한 문제 해결
 # =====================================================
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # 메타데이터
 LABEL maintainer="AI/ML Engineer"
