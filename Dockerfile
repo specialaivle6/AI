@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # 한글 폰트 시스템 설치 (백업용)
     fonts-noto-cjk \
     fontconfig \
+    fonts-nanum \
     # 빌드 도구 (일부 Python 패키지 컴파일용)
     gcc \
     g++ \
