@@ -113,9 +113,10 @@ test_code/test_images/
 tests/test_images/
 
 # Generated reports with Korean filenames
-reports/이의형*.pdf
-reports/*이의형*.pdf
+reports/*.pdf
 
 # Backup files
 *.bak
 *.backup
+
+/chatbot/db/chroma.sqlite3
