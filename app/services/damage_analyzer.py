@@ -3,6 +3,26 @@ YOLOv8 기반 태양광 패널 손상 분석 서비스
 개선된 설정 시스템과 예외 처리 적용
 """
 
+# 환경 변수 설정 - aws ec2 c5.large 기준
+import os
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("MKL_NUM_THREADS", "2")
+
+try:
+    import torch
+    torch.set_num_threads(int(os.environ["OMP_NUM_THREADS"]))
+    torch.set_num_interop_threads(1)
+except Exception:
+    pass
+
+try:
+    # Ultralytics 잡다한 체크/텔레메트리 끄기
+    from ultralytics.utils import SETTINGS as YOLO_SETTINGS
+    YOLO_SETTINGS.update({"checks": False, "analytics": False})
+except Exception:
+    pass
+
+
 import numpy as np
 from ultralytics import YOLO
 from PIL import Image
@@ -12,6 +32,7 @@ from pathlib import Path
 import asyncio
 from typing import Dict, Any, List
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 # 개선된 임포트
 from app.core.config import settings
@@ -22,6 +43,8 @@ from app.core.exceptions import (
 from app.core.logging_config import get_logger, log_analysis_result, log_performance
 
 logger = get_logger(__name__)
+
+_EXEC = ThreadPoolExecutor(max_workers=1)  # CPU 환경이면 1~2로 충분
 
 
 class DamageAnalyzer:
@@ -51,11 +74,19 @@ class DamageAnalyzer:
                 )
 
             # 비동기적으로 모델 로드
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await asyncio.wait_for(
-                loop.run_in_executor(None, self._load_model),
+                loop.run_in_executor(_EXEC, self._load_model),
                 timeout=settings.image_processing_timeout
             )
+
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(_EXEC, self._warmup_once),
+                    timeout=3
+                )
+            except Exception as _:
+                pass
 
             self.is_model_loaded = True
             logger.info("✅ YOLOv8 모델 로딩 완료")
@@ -75,6 +106,16 @@ class DamageAnalyzer:
             logger.info(f"모델 클래스 수: {len(self.class_names)}")
         except Exception as e:
             raise Exception(f"YOLO 모델 로드 실패: {str(e)}")
+
+    def _warmup_once(self):
+        """가벼운 워밍업 1회"""
+        try:
+            # 작은 RGB 이미지로 한 번 돌려 내부 초기화
+            img = Image.new("RGB", (64, 64), (0, 0, 0))
+            with torch.inference_mode():
+                _ = self.model(img, conf=0.5, iou=0.5, max_det=1, verbose=False)
+        except Exception:
+            pass
 
     def is_loaded(self) -> bool:
         """모델 로딩 상태 확인"""
@@ -106,9 +147,9 @@ class DamageAnalyzer:
 
             # YOLOv8 추론 수행
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 results = await asyncio.wait_for(
-                    loop.run_in_executor(None, self._run_inference, image),
+                    loop.run_in_executor(_EXEC, self._run_inference, image),
                     timeout=settings.image_processing_timeout
                 )
             except asyncio.TimeoutError:
@@ -140,13 +181,14 @@ class DamageAnalyzer:
     def _run_inference(self, image: Image.Image) -> List:
         """YOLO 모델 추론 실행"""
         try:
-            results = self.model(
-                image,
-                conf=settings.confidence_threshold,
-                iou=settings.iou_threshold,
-                max_det=settings.max_detections,
-                verbose=False
-            )
+            with torch.inference_mode():
+                results = self.model(
+                    image,
+                    conf=settings.confidence_threshold,
+                    iou=settings.iou_threshold,
+                    max_det=settings.max_detections,
+                    verbose=False
+                )
             return results
         except Exception as e:
             raise Exception(f"YOLO 추론 실패: {str(e)}")
