@@ -1,12 +1,32 @@
-import boto3, os, time
-from botocore.exceptions import BotoCoreError, ClientError
+# === (맨 위) 환경변수/스레드 설정 ===
+import os
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("MKL_NUM_THREADS", "2")
+
+try:
+    import torch
+    torch.set_num_threads(int(os.environ["OMP_NUM_THREADS"]))
+    torch.set_num_interop_threads(1)
+except Exception:
+    pass
+
+try:
+    from ultralytics.utils import SETTINGS as YOLO_SETTINGS
+    YOLO_SETTINGS.update({"checks": False, "analytics": False})
+except Exception:
+    pass
+
+import asyncio
+import time
+import boto3
+
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
 from typing import Optional, List, Union
-import asyncio
+
 from datetime import datetime
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(), override=False)
@@ -35,9 +55,9 @@ from app.utils.report_generator import generate_performance_report
 from app.utils.performance_utils import estimate_panel_cost
 
 """ s3 업로드용 """
-import os, time
-import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+from concurrent.futures import ThreadPoolExecutor
+from botocore.config import Config as BotoConfig
 
 # === (ADD) Chatbot wiring imports ===
 from app.api import chat as chat_router
@@ -56,6 +76,9 @@ logger = get_logger(__name__)
 # 전역 변수로 서비스들 관리
 damage_analyzer: Optional[DamageAnalyzer] = None
 performance_analyzer: Optional[PerformanceAnalyzer] = None
+EXEC = ThreadPoolExecutor(max_workers=1)  # run_in_executor 전역 실행자 (1~2 권장)
+session = None
+s3_client = None
 
 load_dotenv(find_dotenv(), override=False)
 
@@ -63,7 +86,7 @@ load_dotenv(find_dotenv(), override=False)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 생명주기 관리"""
-    global damage_analyzer, performance_analyzer
+    global damage_analyzer, performance_analyzer, session, s3_client
 
     # Startup
     logger.info(f"🚀 {settings.app_name} v{settings.app_version} 초기화 시작...")
@@ -76,6 +99,34 @@ async def lifespan(app: FastAPI):
             logger.warning(f"  - {issue}")
 
     try:
+        # -- AWS 세션/클라 (임포트 시 실행 금지)
+        boto_cfg = BotoConfig(retries={"max_attempts": 3, "mode": "standard"}, tcp_keepalive=True)
+        session = boto3.session.Session(
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+            aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
+            region_name=settings.aws_default_region,
+        )
+        s3_client = session.client("s3", config=boto_cfg)
+
+        # STS 확인은 비차단/타임아웃
+        async def _sts_check():
+            try:
+                sts = session.client("sts", config=boto_cfg)
+                return await asyncio.get_running_loop().run_in_executor(EXEC, sts.get_caller_identity)
+            except Exception:
+                return None
+
+        try:
+            ident = await asyncio.wait_for(_sts_check(), timeout=3)
+            if ident:
+                ak = (settings.aws_access_key_id or "")
+                logger.info(f"AWS credentials OK (acct={ident['Account']}, arn={ident['Arn']}, key=***{ak[-4:]})")
+            else:
+                logger.warning("AWS STS check skipped or timed out")
+        except Exception:
+            logger.warning("AWS STS check timed out")
+
         # 손상 분석기 초기화
         log_model_status("DamageAnalyzer", "loading", path=settings.damage_model_path)
         damage_analyzer = DamageAnalyzer()
@@ -92,7 +143,10 @@ async def lifespan(app: FastAPI):
 
         # === (ADD) Chatbot RAG warmup ===
         try:
-            rag.warmup()
+            async def _rag_warmup():
+                await asyncio.get_running_loop().run_in_executor(EXEC, rag.warmup)
+
+            await asyncio.wait_for(_rag_warmup(), timeout=5)
             logger.info("🤖 Chatbot RAG warmup 완료")
         except Exception as e:
             logger.warning(f"🤖 Chatbot RAG warmup 건너뜀: {e}")
@@ -429,25 +483,25 @@ if __name__ == "__main__":
     )
 
 # --- S3 client ---
-
-session = boto3.session.Session(
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-    aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
-    region_name=AWS_REGION,
-)
-
-s3_client = session.client("s3")
-
-try:
-    sts = session.client("sts")
-    ident = sts.get_caller_identity()
-    ak = os.getenv("AWS_ACCESS_KEY_ID") or ""
-    logger.info(
-        f"AWS credentials OK (acct={ident['Account']}, arn={ident['Arn']}, key=***{ak[-4:]})"
-    )
-except Exception as e:
-    logger.error(f"AWS credentials NOT found/invalid: {e}")
+#
+# session = boto3.session.Session(
+#     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+#     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+#     aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
+#     region_name=AWS_REGION,
+# )
+#
+# s3_client = session.client("s3")
+#
+# try:
+#     sts = session.client("sts")
+#     ident = sts.get_caller_identity()
+#     ak = os.getenv("AWS_ACCESS_KEY_ID") or ""
+#     logger.info(
+#         f"AWS credentials OK (acct={ident['Account']}, arn={ident['Arn']}, key=***{ak[-4:]})"
+#     )
+# except Exception as e:
+#     logger.error(f"AWS credentials NOT found/invalid: {e}")
 
 def upload_pdf_to_s3(local_path: str, key: str) -> ReportItemResult:
     content_type = "application/pdf"
