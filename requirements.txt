@@ -67,3 +67,6 @@ chromadb>=0.5.0
 # 챗봇 관련 - 최신 호환 버전
 langchain>=0.1.0
 tiktoken>=0.5.0
+
+# 모델 다운로드 관련
+gdown>=4.7.1
