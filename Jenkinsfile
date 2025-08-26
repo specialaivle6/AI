@@ -79,12 +79,16 @@ pipeline {
                 echo 'Deploying to AI server...'
                 sshagent(credentials: ['ai-server-ssh']) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=no ubuntu@10.0.3.76 '
+                        ssh -o StrictHostKeyChecking=no ubuntu@10.0.3.76 "
+                            # ECR 로그인 (AI 서버에서)
+                            aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin 307946665510.dkr.ecr.ap-northeast-2.amazonaws.com &&
+                            
+                            # 배포 진행
                             cd /home/ubuntu/ai-service &&
                             docker compose pull &&
                             docker compose up -d --force-recreate &&
                             docker compose ps
-                        '
+                        "
                     '''
                 }
             }
