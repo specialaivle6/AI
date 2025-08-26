@@ -21,18 +21,17 @@ pipeline {
             steps {
                 echo 'Downloading AI models from Google Drive...'
                 sh '''
-                    # gdown 설치 (필요시)
-                    pip3 install --user gdown
-                    
                     # models 디렉토리 생성
                     mkdir -p models
                     
-                    # 모델 다운로드
-                    ~/.local/bin/gdown 1dnLC0i8pV5MhUmP8g4nlRW4kv1W4m7DY -O models/voting_ensemble_model.pkl
-                    ~/.local/bin/gdown 1YgGcg24h3tLu6G_Cv0zJlbTzpO8aPTyn -O models/yolov8_seg_0812_v0.1.pt
+                    # Google Drive에서 직접 다운로드
+                    curl -L "https://drive.google.com/uc?export=download&id=1dnLC0i8pV5MhUmP8g4nlRW4kv1W4m7DY" -o models/voting_ensemble_model.pkl
+                    curl -L "https://drive.google.com/uc?export=download&id=1YgGcg24h3tLu6G_Cv0zJlbTzpO8aPTyn" -o models/yolov8_seg_0812_v0.1.pt
                     
                     # 다운로드 확인
+                    echo "Downloaded models:"
                     ls -la models/
+                    du -h models/*
                 '''
             }
         }
