@@ -16,6 +16,26 @@ pipeline {
                 checkout scm
             }
         }
+
+        stage('Download Models') {
+            steps {
+                echo 'Downloading AI models from Google Drive...'
+                sh '''
+                    # gdown 설치 (필요시)
+                    pip3 install --user gdown
+                    
+                    # models 디렉토리 생성
+                    mkdir -p models
+                    
+                    # 모델 다운로드
+                    ~/.local/bin/gdown 1dnLC0i8pV5MhUmP8g4nlRW4kv1W4m7DY -O models/voting_ensemble_model.pkl
+                    ~/.local/bin/gdown 1YgGcg24h3tLu6G_Cv0zJlbTzpO8aPTyn -O models/yolov8_seg_0812_v0.1.pt
+                    
+                    # 다운로드 확인
+                    ls -la models/
+                '''
+            }
+        }
         
         stage('Build Docker Image') {
             steps {
