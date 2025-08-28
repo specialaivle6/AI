@@ -285,115 +285,108 @@ class DamageAnalyzer:
         return damage_areas
 
     def _calculate_damage_from_masks(self, result) -> Dict[str, float]:
-        """마스크 기반 정확한 손상 영역 계산 (Previous 버전 방식 적용)"""
-        damage_areas = {
-            "critical": 0.0,
-            "contamination": 0.0,
-            "total": 0.0
-        }
+        damage_areas = {"critical": 0.0, "contamination": 0.0, "total": 0.0}
 
-        # 영역별 면적 계산
         total_panel_area = 0
-        defective_area = 0
-        healthy_area = 0
+        defective_panel_area = 0
         critical_damage_area = 0
         contamination_area = 0
+        all_masks_area = 0
 
-        # 각 검출된 객체 분석
         for i, mask in enumerate(result.masks.data):
             mask_np = mask.cpu().numpy()
-            mask_area = np.sum(mask_np)
 
-            class_id = int(result.boxes.cls[i])
-            class_name = self.class_names.get(class_id, f"class_{class_id}")
-            confidence = float(result.boxes.conf[i])
-
-            # 신뢰도 임계값 확인
-            if confidence < settings.confidence_threshold:
+            cls_id = int(result.boxes.cls[i])
+            cls = self.class_names.get(cls_id, f"class_{cls_id}")
+            conf = float(result.boxes.conf[i])
+            if conf < settings.confidence_threshold:
                 continue
 
-            # 카테고리별 면적 분류 (Previous 버전 로직)
-            if class_name == 'Defective':
-                defective_area += mask_area
-                total_panel_area += mask_area
-            elif class_name == 'Non-Defective':
-                healthy_area += mask_area
-                total_panel_area += mask_area
-            elif class_name in self.critical_classes:
-                critical_damage_area += mask_area
-                defective_area += mask_area
-                total_panel_area += mask_area
-            elif class_name in self.contamination_classes:
-                contamination_area += mask_area
-                defective_area += mask_area
-                total_panel_area += mask_area
+            mask_area = float(np.sum(mask_np))  # ← conf 통과 후 면적 계산
+            all_masks_area += mask_area  # ← 여기서 누적
 
-        # 패널 영역 기준으로 백분율 계산 (Previous 버전 방식)
-        if total_panel_area > 0:
-            damage_areas["critical"] = (critical_damage_area / total_panel_area) * 100.0
-            damage_areas["contamination"] = (contamination_area / total_panel_area) * 100.0
-            damage_areas["total"] = (defective_area / total_panel_area) * 100.0
+            if cls in ('Non-Defective', 'Defective'):
+                total_panel_area += mask_area
+                if cls == 'Defective':
+                    defective_panel_area += mask_area
+            elif cls in self.critical_classes:
+                critical_damage_area += mask_area
+            elif cls in self.contamination_classes:
+                contamination_area += mask_area
+
+        # 분모 보정: 패널 마스크가 하나도 없으면 전체 마스크 면적을 분모로 사용(폴백)
+        denom = total_panel_area if total_panel_area > 0 else all_masks_area
+
+        if denom > 0:
+            damage_areas["critical"] = critical_damage_area / denom * 100.0
+            damage_areas["contamination"] = contamination_area / denom * 100.0
+            # total = 결함 패널 비중이 원래 의도지만 패널 마스크 없으면 critical+contam 대체
+            total_area = defective_panel_area if total_panel_area > 0 else (critical_damage_area + contamination_area)
+            damage_areas["total"] = total_area / denom * 100.0
         else:
-            # 패널이 검출되지 않은 경우는 0%로 처리
             damage_areas = {"critical": 0.0, "contamination": 0.0, "total": 0.0}
 
-        logger.info(f"손상 영역 계산 완료 (패널 기준) - Critical: {damage_areas['critical']:.2f}%, "
-                    f"Contamination: {damage_areas['contamination']:.2f}%, "
-                    f"Total: {damage_areas['total']:.2f}%")
-
+        logger.info(f"손상 영역 계산(패널 기준/폴백) - Critical:{damage_areas['critical']:.2f}%, "
+                    f"Contam:{damage_areas['contamination']:.2f}%, Total:{damage_areas['total']:.2f}%")
         return damage_areas
 
     def _create_business_assessment(self, damage_areas: Dict[str, float]) -> Dict[str, Any]:
-        """비즈니스 평가 생성 (업데이트된 설정 상수 사용)"""
-        total_damage = damage_areas["total"]
-        critical_damage = damage_areas["critical"]
-        contamination = damage_areas["contamination"]
+        """비즈니스 평가 (백엔드 3필드 중심: status, damage_degree, decision)"""
+        critical = float(damage_areas.get("critical", 0.0))
+        contam = float(damage_areas.get("contamination", 0.0))
+        total = float(damage_areas.get("total", 0.0))
 
-        # 업데이트된 설정 상수를 사용한 우선순위 분류
-        if critical_damage > settings.DamageConstants.URGENT_CRITICAL_THRESHOLD:
-            priority = "URGENT"
-            risk_level = "HIGH"
-            decision = "즉시 가동 중단 및 교체"
-        elif (critical_damage > settings.DamageConstants.HIGH_CRITICAL_THRESHOLD or
-              total_damage > settings.DamageConstants.HIGH_TOTAL_THRESHOLD):
-            priority = "HIGH"
-            risk_level = "MEDIUM"
-            decision = "교체"
-        elif total_damage > settings.DamageConstants.MEDIUM_TOTAL_THRESHOLD:
-            priority = "MEDIUM"
-            risk_level = "LOW"
-            decision = "수리"
+        # 1) status: 설정 상수와 정합화
+        if critical > settings.DamageConstants.URGENT_CRITICAL_THRESHOLD:
+            status = "심각한 손상"
+        elif critical > 0:
+            status = "손상"
+        elif contam > settings.DamageConstants.LOW_CONTAMINATION_THRESHOLD:
+            status = "오염"
         else:
-            priority = "LOW"
-            risk_level = "MINIMAL"
-            decision = "정기 점검"
+            status = "정상"
 
-        # 업데이트된 설정을 사용한 현실적인 비용 추정
-        estimated_cost = 0
-        if critical_damage > 0:
-            estimated_cost += critical_damage * settings.DamageConstants.CRITICAL_DAMAGE_COST_PER_PERCENT
-        if contamination > 10:
-            estimated_cost += contamination * settings.DamageConstants.CONTAMINATION_COST_PER_PERCENT
+        # 2) damage_degree: 총 손상률(0~100, 반올림 + 클램프)
+        damage_degree = int(round(max(0.0, min(100.0, total))))
 
-        # 기본 교체 비용 적용
-        if decision == "즉시 가동 중단 및 교체" or decision == "교체":
-            estimated_cost = max(estimated_cost, settings.DamageConstants.REPLACEMENT_COST_BASE)
+        # 3) decision
+        #    - 오염 지배적(critical 거의 0 또는 오염 비중↑) + 오염 임계 초과 → 단순 오염(=청소)
+        #    - 그 외 critical 기준으로 수리/교체, 경미 시 정기 점검/단순 오염
+        share = (contam / total * 100.0) if total > 0 else 0.0
+        contamination_dominant = (critical < 1e-6) or (share >= 60.0)
 
-        # 설정 기반 성능 손실 계산
-        performance_loss = min(total_damage * settings.DamageConstants.PERFORMANCE_LOSS_RATIO, 95.0)
+        if contamination_dominant and contam >= settings.DamageConstants.MEDIUM_CONTAMINATION_THRESHOLD:
+            decision, priority, risk = "단순 오염", "LOW", "MINIMAL"
+        else:
+            if critical > settings.DamageConstants.URGENT_CRITICAL_THRESHOLD:
+                decision, priority, risk = "교체", "URGENT", "HIGH"
+            elif critical > settings.DamageConstants.HIGH_CRITICAL_THRESHOLD:
+                decision, priority, risk = "수리", "HIGH", "MEDIUM"
+            elif total > 15.0:
+                decision, priority, risk = "수리", "MEDIUM", "LOW"
+            else:
+                decision, priority, risk = ("단순 오염" if contam > 0 else "정상 (정기 점검 유지)"), "LOW", "MINIMAL"
 
         return {
-            "priority": priority,
-            "risk_level": risk_level,
-            "status": "심각한 손상" if critical_damage > 10 else "손상" if total_damage > 5.0 else "오염" if total_damage > 1.0 else "정상",
-            "panel_status": "심각한 손상" if critical_damage > 10 else "손상" if total_damage > 5.0 else "오염" if total_damage > 1.0 else "정상",
-            "damage_degree": int(total_damage),
+            # 백엔드가 쓰는 3개
+            "status": status,
+            "panel_status": status,  # 기존 필드 호환
+            "damage_degree": damage_degree,
             "decision": decision,
+
+            # 부가(현재 미사용): None으로 단순화
+            "priority": priority,
+            "risk_level": risk,
             "recommendations": self._generate_enhanced_recommendations(damage_areas),
-            "estimated_repair_cost_krw": int(estimated_cost),
-            "estimated_performance_loss_percent": round(performance_loss, 1),
-            "maintenance_urgency_days": self._calculate_enhanced_urgency_days(critical_damage, total_damage),
-            "business_impact": self._assess_enhanced_business_impact(total_damage, critical_damage)
+            "estimated_repair_cost_krw": None,
+            "estimated_performance_loss_percent": None,
+            "maintenance_urgency_days": self._calculate_enhanced_urgency_days(critical, total),
+            "business_impact": self._assess_enhanced_business_impact(total, critical),
+
+            # 참고용
+            "contamination_percentage": round(contam, 2),
+            "critical_damage_percentage": round(critical, 2),
+            "maintenance_type": "청소" if decision in ("청소", "단순 오염") else ("수리/교체" if critical > 0 else "정상"),
         }
 
     def _generate_enhanced_recommendations(self, damage_areas: Dict[str, float]) -> List[str]:
@@ -423,8 +416,11 @@ class DamageAnalyzer:
             recommendations.append("패널 청소 필요")
 
         # 정상 상태
-        if total_damage < 5.0:
-            recommendations.append("정상 상태 - 정기 점검 유지")
+        if critical_damage > 0:
+            if total_damage > 30.0:
+                recommendations.append("패널 교체 검토 필요")
+            elif total_damage > 15.0:
+                recommendations.append("1주일 내 수리 예약 권장")
 
         return recommendations if recommendations else ["현재 상태 양호, 정기 점검 지속"]
 
@@ -457,10 +453,10 @@ class DamageAnalyzer:
         overall_damage_percentage = damage_areas["total"]
         critical_damage_percentage = damage_areas["critical"]
         contamination_percentage = damage_areas["contamination"]
-        healthy_percentage = 100 - overall_damage_percentage
+        healthy_percentage = max(0.0, min(100.0, 100.0 - overall_damage_percentage))
 
         # 클래스별 비율 계산
-        class_percentages = self._calculate_class_percentages(results, damage_areas["total"])
+        class_percentages = self._calculate_class_percentages(results)
 
         # 실제 감지된 객체 수 계산
         detected_objects_count = 0
@@ -482,15 +478,15 @@ class DamageAnalyzer:
             "status": "analyzed"
         }
 
-    def _calculate_class_percentages(self, results, total_damage_area: float) -> Dict[str, float]:
-        """클래스별 비율 계산"""
-        class_areas = {}
-
+    def _calculate_class_percentages(self, results) -> Dict[str, float]:
+        """
+        클래스별 면적 비중(%) 계산
+        - 마스크 있으면 마스크 픽셀, 없으면 bbox 픽셀
+        - 분모는 '모든 클래스 면적 합'
+        """
         if not results or len(results) == 0:
             return {}
-
         result = results[0]
-
         if result.boxes is None or len(result.boxes) == 0:
             return {}
 
@@ -498,37 +494,32 @@ class DamageAnalyzer:
         classes = result.boxes.cls.cpu().numpy().astype(int)
         confidences = result.boxes.conf.cpu().numpy()
 
+        class_areas: Dict[str, float] = {}
         for i, (box, cls_id, conf) in enumerate(zip(boxes, classes, confidences)):
             if conf < settings.confidence_threshold:
                 continue
+            cls = self.class_names.get(cls_id, f"class_{cls_id}")
 
-            class_name = self.class_names.get(cls_id, f"class_{cls_id}")
-
-            # 바운딩 박스 영역 계산
+            # 기본: bbox 면적
             x1, y1, x2, y2 = box
-            box_area = (x2 - x1) * (y2 - y1)
+            area = float((x2 - x1) * (y2 - y1))
 
-            # 세그멘테이션 마스크가 있는 경우 더 정확한 영역 계산
-            if hasattr(result, 'masks') and result.masks is not None and len(result.masks) > i:
+            # 마스크 우선
+            if hasattr(result, 'masks') and result.masks is not None and len(result.masks.data) > i:
                 try:
-                    mask = result.masks[i].data.cpu().numpy()
-                    if mask.size > 0:
-                        mask_area = np.sum(mask > 0.5)
-                        box_area = mask_area
+                    m = result.masks.data[i].cpu().numpy()
+                    if m.size > 0:
+                        area = float(np.sum(m > 0.5))
                 except Exception:
-                    pass  # 바운딩 박스 영역 사용
+                    pass
 
-            if class_name not in class_areas:
-                class_areas[class_name] = 0
-            class_areas[class_name] += box_area
+            class_areas[cls] = class_areas.get(cls, 0.0) + area
 
-        # 전체 손상 영역 대비 백분율로 변환
-        if total_damage_area > 0:
-            class_percentages = {k: (v / total_damage_area) * 100 for k, v in class_areas.items()}
-        else:
-            class_percentages = {k: 0.0 for k in class_areas.keys()}
+        total = sum(class_areas.values())
+        if total <= 0:
+            return {k: 0.0 for k in class_areas.keys()}
 
-        return {k: round(v, 2) for k, v in class_percentages.items()}
+        return {k: round(v / total * 100.0, 2) for k, v in class_areas.items()}
 
     def _calculate_avg_confidence(self, results) -> float:
         """평균 신뢰도 계산"""
@@ -570,13 +561,13 @@ class DamageAnalyzer:
             area_pixels = int((box[2] - box[0]) * (box[3] - box[1]))
 
             # 세그멘테이션 마스크가 있는 경우 더 정확한 영역 계산
-            if hasattr(result, 'masks') and result.masks is not None and len(result.masks) > i:
+            if hasattr(result, 'masks') and result.masks is not None and len(result.masks.data) > i:
                 try:
-                    mask = result.masks[i].data.cpu().numpy()
-                    if mask.size > 0:
-                        area_pixels = int(np.sum(mask > 0.5))
+                    m = result.masks.data[i].cpu().numpy()
+                    if m.size > 0:
+                        area_pixels = int(np.sum(m > 0.5))
                 except Exception:
-                    pass  # 바운딩 박스 영역 사용
+                    pass
 
             detections.append({
                 "class_name": class_name,

@@ -103,11 +103,14 @@ class Settings:
         CRITICAL_CLASSES = ['Physical-Damage', 'Electrical-Damage']
         CONTAMINATION_CLASSES = ['Bird-drop', 'Dusty', 'Snow']
 
-        # 4단계 우선순위 임계값 (Previous 버전 로직 반영)
+        # 우선순위 임계값 (Previous 버전 로직 반영)
         URGENT_CRITICAL_THRESHOLD = 10.0    # Critical 손상 10% 이상 → URGENT
         HIGH_CRITICAL_THRESHOLD = 5.0       # Critical 손상 5% 이상 → HIGH
-        HIGH_TOTAL_THRESHOLD = 30.0         # Total 손상 30% 이상 → HIGH
-        MEDIUM_TOTAL_THRESHOLD = 15.0       # Total 손상 15% 이상 → MEDIUM
+
+        # 오염 관련 임계값 추가
+        HIGH_CONTAMINATION_THRESHOLD = 30.0  # 즉시 청소 필요
+        MEDIUM_CONTAMINATION_THRESHOLD = 15.0  # 1주일 내 청소
+        LOW_CONTAMINATION_THRESHOLD = 5.0  # 정기 청소 조정
 
         # 기존 호환성을 위한 임계값 (deprecated)
         PRIORITY_HIGH_THRESHOLD = 10.0
