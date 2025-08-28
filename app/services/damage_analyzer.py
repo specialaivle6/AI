@@ -331,53 +331,77 @@ class DamageAnalyzer:
         return damage_areas
 
     def _create_business_assessment(self, damage_areas: Dict[str, float]) -> Dict[str, Any]:
-        """비즈니스 평가 (백엔드 3필드 중심: status, damage_degree, decision)"""
-        critical = float(damage_areas.get("critical", 0.0))
-        contam = float(damage_areas.get("contamination", 0.0))
-        total = float(damage_areas.get("total", 0.0))
+        """
+        비즈니스 평가 (status / damage_degree / decision)
+        요구사항:
+          - 오염 클래스 3종(Bird-drop, Dusty, Snow)은 기존처럼 '청소(=단순 오염)' 우선
+          - 손상 클래스(Physical-Damage, Electrical-Damage)는 damage_degree(=total) 기준으로 의사결정
+              * 10% ~ 29.9%  → 수리
+              * 30% 이상     → 교체
+        """
+        critical = float(damage_areas.get("critical", 0.0))  # 물리/전기 손상 비율(%)
+        contam = float(damage_areas.get("contamination", 0.0))  # 오염 비율(%)
+        total = float(damage_areas.get("total", 0.0))  # 총 손상 비율(%: Defective 포함)
 
-        # 1) status: 설정 상수와 정합화
-        if critical > settings.DamageConstants.URGENT_CRITICAL_THRESHOLD:
-            status = "심각한 손상"
-        elif critical > 0:
-            status = "손상"
-        elif contam > settings.DamageConstants.LOW_CONTAMINATION_THRESHOLD:
-            status = "오염"
-        else:
-            status = "정상"
+        # ---- 임계값(설정에서 가져오되 기본값 보유) ----
+        LOW_CONTAM = getattr(settings.DamageConstants, "LOW_CONTAMINATION_THRESHOLD", 5.0)
+        MED_CONTAM = getattr(settings.DamageConstants, "MEDIUM_CONTAMINATION_THRESHOLD", 15.0)
 
-        # 2) damage_degree: 총 손상률(0~100, 반올림 + 클램프)
+        # ---- 표시용 손상도(damage_degree) = total ----
         damage_degree = int(round(max(0.0, min(100.0, total))))
 
-        # 3) decision
-        #    - 오염 지배적(critical 거의 0 또는 오염 비중↑) + 오염 임계 초과 → 단순 오염(=청소)
-        #    - 그 외 critical 기준으로 수리/교체, 경미 시 정기 점검/단순 오염
+        # ---- 오염 지배 판단: critical 거의 0 이거나, 오염 비중이 매우 큰 경우 ----
         share = (contam / total * 100.0) if total > 0 else 0.0
         contamination_dominant = (critical < 1e-6) or (share >= 60.0)
 
-        if contamination_dominant and contam >= settings.DamageConstants.MEDIUM_CONTAMINATION_THRESHOLD:
+        # ---- 의사결정(decision) ----
+        if contamination_dominant and contam >= MED_CONTAM:
+            # 오염 위주: 청소(=단순 오염) 고정
             decision, priority, risk = "단순 오염", "LOW", "MINIMAL"
         else:
-            if critical > settings.DamageConstants.URGENT_CRITICAL_THRESHOLD:
+            # 손상 위주: damage_degree(=total)로 판단
+            if damage_degree >= 30:
                 decision, priority, risk = "교체", "URGENT", "HIGH"
-            elif critical > settings.DamageConstants.HIGH_CRITICAL_THRESHOLD:
-                decision, priority, risk = "수리", "HIGH", "MEDIUM"
-            elif total > 15.0:
-                decision, priority, risk = "수리", "MEDIUM", "LOW"
+            elif damage_degree >= 10:
+                # 20% 이상이면 우선순위만 상향
+                decision = "수리"
+                priority = "HIGH" if damage_degree >= 20 or critical >= 10.0 else "MEDIUM"
+                risk = "MEDIUM" if damage_degree >= 20 or critical >= 10.0 else "LOW"
             else:
-                decision, priority, risk = ("단순 오염" if contam > 0 else "정상 (정기 점검 유지)"), "LOW", "MINIMAL"
+                # 경미한 손상( <10% ): 정기 점검
+                decision, priority, risk = "정기 점검", "LOW", "MINIMAL"
+
+        # ---- 상태(status): decision과 일치하도록 단순 매핑 ----
+        if decision == "교체":
+            status = "심각한 손상"
+        elif decision == "수리":
+            status = "손상"
+        elif decision == "단순 오염":
+            status = "오염"
+        else:
+            # "정기 점검" 등
+            # 오염이 조금이라도 있으면 UI 가독성을 위해 '정상(정기 점검 유지)'로 표현 가능
+            status = "정상"
+
+        # ---- 권장사항: 오염-only인 경우 수리/교체 문구 제거 ----
+        recs = self._generate_enhanced_recommendations(damage_areas)
+        if decision == "단순 오염":
+            recs = [r for r in recs if ("수리" not in r and "교체" not in r)]
+            # 청소 강조 문구가 없다면 선두에 추가
+            if not any("청소" in r for r in recs):
+                recs.insert(0, "패널 청소 필요")
 
         return {
-            # 백엔드가 쓰는 3개
+            # 백엔드 3필드
             "status": status,
-            "panel_status": status,  # 기존 필드 호환
+            "panel_status": status,  # 호환 필드
             "damage_degree": damage_degree,
             "decision": decision,
 
-            # 부가(현재 미사용): None으로 단순화
+            # 부가(현재 미사용)
             "priority": priority,
             "risk_level": risk,
-            "recommendations": self._generate_enhanced_recommendations(damage_areas),
+            "recommendations": recs,
             "estimated_repair_cost_krw": None,
             "estimated_performance_loss_percent": None,
             "maintenance_urgency_days": self._calculate_enhanced_urgency_days(critical, total),
@@ -386,7 +410,7 @@ class DamageAnalyzer:
             # 참고용
             "contamination_percentage": round(contam, 2),
             "critical_damage_percentage": round(critical, 2),
-            "maintenance_type": "청소" if decision in ("청소", "단순 오염") else ("수리/교체" if critical > 0 else "정상"),
+            "maintenance_type": "청소" if decision == "단순 오염" else ("수리/교체" if decision in ("수리", "교체") else "정상"),
         }
 
     def _generate_enhanced_recommendations(self, damage_areas: Dict[str, float]) -> List[str]:
